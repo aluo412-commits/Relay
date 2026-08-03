@@ -33,8 +33,21 @@ export interface AgentResult {
   proposals: AgentProposal[];
   documents: AgentDocument[]; // real markdown artifacts the agent produced
   presentations: PresentationSpec[]; // real .pptx decks the agent authored
+  askQuestions: AgentQuestion[]; // questions to hang on the board and deliver
   syncActions: BoardAction[]; // status changes to APPLY immediately (log mode)
   rawToolCalls: { name: string; arguments: string }[];
+}
+
+// A question the agent decided to hang on the board (from "ask Sam if…" in chat).
+export interface AgentQuestion {
+  text: string;
+  ask: string; // "everyone" or comma-separated member names
+  visibility: "private" | "team";
+  answerType: "open" | "yesno";
+  ifYesTask?: string;
+  ifYesStatus?: string;
+  ifNoTask?: string;
+  ifNoStatus?: string;
 }
 
 // Provider-agnostic OpenAI-compatible client (currently OpenCode Zen; MiniMax vars
@@ -273,6 +286,29 @@ const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "ask_teammate",
+      description:
+        "Hang a QUESTION on the board when the user asks you to ask/check with someone or find something out (e.g. 'ask Sam if v1 is ready', 'check with the team about the deadline'). Relay reaches the person and brings the answer back. This executes immediately — you're asking on their behalf, not drafting.",
+      parameters: {
+        type: "object",
+        properties: {
+          reply: { type: "string", description: "short confirmation, e.g. 'Asked Sam — I'll bring back the answer.'" },
+          question: { type: "string", description: "the question to ask, in plain words" },
+          ask: { type: "string", description: "who to ask: a member's name, several names comma-separated, or 'everyone'" },
+          visibility: { type: "string", enum: ["team", "private"], description: "team = others can see it; private = only the asked" },
+          answerType: { type: "string", enum: ["open", "yesno"], description: "'yesno' if it's a yes/no question, else 'open'" },
+          ifYesTask: { type: "string", description: "optional: exact task name to change if answered yes (only when asking ONE person a yes/no)" },
+          ifYesStatus: { type: "string", enum: ["new", "inprogress", "blocked", "done"] },
+          ifNoTask: { type: "string", description: "optional: exact task name to change if answered no" },
+          ifNoStatus: { type: "string", enum: ["new", "inprogress", "blocked", "done"] },
+        },
+        required: ["question", "ask"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "sync_task",
       description:
         "Silently apply a status change to an EXISTING board task when a log entry clearly states it (e.g. 'finished the claw' → done; 'blocked on X' → blocked). Use the exact task name. Only for existing tasks and only when unambiguous.",
@@ -394,6 +430,7 @@ export async function runAgentTurn(
   const proposals: AgentProposal[] = [];
   const documents: AgentDocument[] = [];
   const presentations: PresentationSpec[] = [];
+  const askQuestions: AgentQuestion[] = [];
   const syncActions: BoardAction[] = [];
   let reply = "";
   let questions: string[] | undefined;
@@ -439,6 +476,20 @@ export async function runAgentTurn(
           slides,
         });
       }
+    } else if (name === "ask_teammate") {
+      if (a.question && a.ask) {
+        askQuestions.push({
+          text: a.question as string,
+          ask: a.ask as string,
+          visibility: (a.visibility as "private" | "team") === "private" ? "private" : "team",
+          answerType: (a.answerType as "open" | "yesno") === "yesno" ? "yesno" : "open",
+          ifYesTask: (a.ifYesTask as string) || undefined,
+          ifYesStatus: (a.ifYesStatus as string) || undefined,
+          ifNoTask: (a.ifNoTask as string) || undefined,
+          ifNoStatus: (a.ifNoStatus as string) || undefined,
+        });
+        if (!reply) reply = (a.reply as string) || "";
+      }
     } else if (name === "sync_task") {
       if (a.task) {
         syncActions.push({
@@ -464,7 +515,7 @@ export async function runAgentTurn(
       try {
         const parsed = JSON.parse(jsonStr) as RelayTurn;
         if (parsed.reply) {
-          return { reply: parsed.reply, stage: parsed.stage ?? "coaching", questions: parsed.questions, suggestions: parsed.suggestions, proposals: [], documents: [], presentations: [], syncActions: [], rawToolCalls };
+          return { reply: parsed.reply, stage: parsed.stage ?? "coaching", questions: parsed.questions, suggestions: parsed.suggestions, proposals: [], documents: [], presentations: [], askQuestions: [], syncActions: [], rawToolCalls };
         }
       } catch {
         /* fall through */
@@ -475,7 +526,7 @@ export async function runAgentTurn(
       .replace(/<\/?minimax:tool_call>/gi, "")
       .replace(/<\/?message>/gi, "")
       .trim();
-    return { reply: cleaned || "Sorry — could you say that again?", stage: "coaching", proposals: [], documents: [], presentations: [], syncActions: [], rawToolCalls };
+    return { reply: cleaned || "Sorry — could you say that again?", stage: "coaching", proposals: [], documents: [], presentations: [], askQuestions: [], syncActions: [], rawToolCalls };
   }
 
   const stage: AgentResult["stage"] = proposals.length > 0 ? "proposing" : "coaching";
@@ -485,10 +536,11 @@ export async function runAgentTurn(
     if (proposals.length) reply = "Here's the draft — review and publish when it looks right.";
     else if (presentations.length) reply = "Built your deck — preview it and download the .pptx from the panel.";
     else if (documents.length) reply = "Wrote it up — it's in the artifact panel to download.";
+    else if (askQuestions.length) reply = "Asked them — I'll bring the answer back to you.";
     else reply = "Got it.";
   }
 
-  return { reply, stage, questions, suggestions, proposals, documents, presentations, syncActions, rawToolCalls };
+  return { reply, stage, questions, suggestions, proposals, documents, presentations, askQuestions, syncActions, rawToolCalls };
 }
 
 /** Generic: ask the model for a JSON object of an arbitrary shape. Returns null on parse failure. */

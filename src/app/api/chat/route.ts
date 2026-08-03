@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { loadState, proposalsToDrafts } from "@/lib/state";
+import { loadState, proposalsToDrafts, normalizeStatus } from "@/lib/state";
 import { buildSystemPrompt } from "@/lib/prompts";
 import { runAgentTurn, selectRelevantCompactions } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
+import { createQuestion } from "@/lib/questions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -110,6 +111,42 @@ export async function POST(req: NextRequest) {
     );
     const artifacts = [...docArtifacts, ...deckArtifacts];
 
+    // Execute any questions the agent decided to ask (resolve names → members,
+    // build branch actions, create + deliver). These run immediately.
+    let askedCount = 0;
+    for (const aq of result.askQuestions) {
+      const everyone = aq.ask.trim().toLowerCase() === "everyone";
+      const names = aq.ask.split(",").map((s) => s.trim()).filter(Boolean);
+      const targets = everyone
+        ? []
+        : state.members.filter((m) => names.some((n) => n.toLowerCase() === m.name.toLowerCase()));
+      if (!everyone && targets.length === 0) continue; // couldn't resolve anyone
+      const single = targets.length === 1;
+      const branchYes =
+        single && aq.answerType === "yesno" && aq.ifYesTask
+          ? [{ type: "update_task" as const, task: aq.ifYesTask, status: normalizeStatus(aq.ifYesStatus) }]
+          : null;
+      const branchNo =
+        single && aq.answerType === "yesno" && aq.ifNoTask
+          ? [{ type: "update_task" as const, task: aq.ifNoTask, status: normalizeStatus(aq.ifNoStatus) }]
+          : null;
+      await createQuestion({
+        projectId: state.project.id,
+        askerId: memberId,
+        boardId: activeBoard.id,
+        text: aq.text,
+        audience: everyone ? "everyone" : "specific",
+        visibility: aq.visibility,
+        targetIds: targets.map((m) => m.id),
+        answerType: aq.answerType,
+        branchYes,
+        branchNo,
+        askerName: member.name,
+        allMemberIds: state.members.map((m) => m.id),
+      });
+      askedCount++;
+    }
+
     return NextResponse.json({
       turn: {
         reply: result.reply,
@@ -119,6 +156,7 @@ export async function POST(req: NextRequest) {
       },
       drafts,
       artifacts,
+      asked: askedCount,
       state,
     });
   } catch (err) {

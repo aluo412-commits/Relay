@@ -236,7 +236,7 @@ export interface QuestionDTO {
 // ---- Active-Sync engine ----
 
 // What a change means to a given person.
-export type SyncVerdict = "unblocked" | "blocked" | "deadline" | "assigned" | "fyi" | "reconcile";
+export type SyncVerdict = "unblocked" | "blocked" | "deadline" | "assigned" | "fyi" | "reconcile" | "question" | "answer";
 // How loudly it should be delivered.
 export type SyncIntensity = "ambient" | "catchup" | "proactive";
 

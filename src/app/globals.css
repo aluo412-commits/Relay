@@ -303,6 +303,8 @@ button { font-family: inherit; }
 .sync-item.v-blocked .sync-icon { color: var(--warn); }
 .sync-item.v-assigned .sync-icon { color: var(--ai); }
 .sync-item.v-reconcile .sync-icon { color: var(--accent); }
+.sync-item.v-question .sync-icon { color: var(--ai); font-weight: 800; }
+.sync-item.v-answer .sync-icon { color: var(--good); }
 .sync-text { flex: 1; min-width: 0; line-height: 1.4; }
 .sync-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 .sync-act { border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); border-radius: 7px; padding: 3px 9px; font-size: 0.74rem; font-weight: 650; cursor: pointer; }

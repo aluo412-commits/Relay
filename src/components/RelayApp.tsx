@@ -431,6 +431,11 @@ export default function RelayApp() {
       if (data.state) setState(data.state);
       addDrafts(Array.isArray(data.drafts) ? data.drafts : []);
       addArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
+      if (data.asked) {
+        showToast(data.asked === 1 ? "Question sent" : `${data.asked} questions sent`);
+        refreshQuestions();
+      }
+      refreshSync();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -991,22 +996,6 @@ export default function RelayApp() {
             Compacted <b>{compactions.length}</b>
           </button>
         ) : null}
-        {(() => {
-          const toAnswer = questions.filter((q) => q.canAnswer).length;
-          return (
-            <button
-              className={`drafts-toggle on${toAnswer ? " urgent" : ""}`}
-              onClick={() => setQuestionsOpen(true)}
-              title="Questions on the board"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M6 6a2 2 0 1 1 2.6 1.9c-.6.2-.6.6-.6 1.1M8 11.5v.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                <circle cx="8" cy="8" r="6.3" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-              Questions{toAnswer ? <b>{toAnswer}</b> : questions.length ? <b>{questions.length}</b> : null}
-            </button>
-          );
-        })()}
         <div className="bell-wrap">
           <button
             className="icon-btn bell"
@@ -1191,7 +1180,7 @@ export default function RelayApp() {
           ) : (
           <>
           <div className="stream" ref={streamRef}>
-            <SyncPanel items={syncItems} onOpenTask={openTaskByName} onDismiss={dismissSync} />
+            <SyncPanel items={syncItems} onOpenTask={openTaskByName} onOpenQuestions={() => setQuestionsOpen(true)} onDismiss={dismissSync} />
             {briefing && (
               <BriefingCard
                 b={briefing}
@@ -1727,15 +1716,19 @@ const SYNC_ICON: Record<SyncItem["verdict"], string> = {
   assigned: "◉",
   reconcile: "⟳",
   fyi: "◆",
+  question: "?",
+  answer: "✓",
 };
 
 function SyncPanel({
   items,
   onOpenTask,
+  onOpenQuestions,
   onDismiss,
 }: {
   items: SyncItem[];
   onOpenTask: (name: string) => void;
+  onOpenQuestions: () => void;
   onDismiss: (key: string) => void;
 }) {
   if (!items.length) return null;
@@ -1746,22 +1739,26 @@ function SyncPanel({
         <span className="sync-sub">what changed that touches you</span>
       </div>
       <div className="sync-list">
-        {items.map((it) => (
-          <div key={it.key} className={`sync-item v-${it.verdict}`}>
-            <span className="sync-icon">{SYNC_ICON[it.verdict]}</span>
-            <span className="sync-text">{it.text}</span>
-            <span className="sync-actions">
-              {it.taskName ? (
-                <button className="sync-act" onClick={() => onOpenTask(it.taskName as string)}>
-                  Open
-                </button>
-              ) : null}
-              <button className="sync-x" title="Dismiss" onClick={() => onDismiss(it.key)}>
-                ×
-              </button>
-            </span>
-          </div>
-        ))}
+        {items.map((it) => {
+          const isQ = it.verdict === "question";
+          const isA = it.verdict === "answer";
+          return (
+            <div key={it.key} className={`sync-item v-${it.verdict}`}>
+              <span className="sync-icon">{SYNC_ICON[it.verdict]}</span>
+              <span className="sync-text">{it.text}</span>
+              <span className="sync-actions">
+                {isQ ? (
+                  <button className="sync-act" onClick={onOpenQuestions}>Answer</button>
+                ) : isA ? (
+                  <button className="sync-act" onClick={onOpenQuestions}>View</button>
+                ) : it.taskName ? (
+                  <button className="sync-act" onClick={() => onOpenTask(it.taskName as string)}>Open</button>
+                ) : null}
+                <button className="sync-x" title="Dismiss" onClick={() => onDismiss(it.key)}>×</button>
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@
 import { prisma } from "./db";
 import { computeSyncFeed, type SyncTask } from "./sync";
 import { completeJson } from "./minimax";
+import { parseList } from "./state";
 import type { SyncItem } from "./types";
 
 export async function loadSyncFeed(memberId: string): Promise<{ memberName: string; items: SyncItem[] }> {
@@ -13,13 +14,17 @@ export async function loadSyncFeed(memberId: string): Promise<{ memberName: stri
   const member = await prisma.member.findUnique({ where: { id: memberId } });
   if (!member) return { memberName: "", items: [] };
 
-  const [taskRows, updates, knowledge, dismissals, reconcileFlags] = await Promise.all([
+  const [taskRows, updates, knowledge, dismissals, reconcileFlags, questionRows, allMembers] = await Promise.all([
     prisma.task.findMany({ where: { projectId: project.id }, include: { owner: true } }),
     prisma.update.findMany({ where: { projectId: project.id }, include: { author: true } }),
     prisma.knowledge.findMany({ where: { projectId: project.id } }),
     prisma.syncDismissal.findMany({ where: { memberId } }),
     prisma.reconcileFlag.findMany({ where: { memberId, resolved: false } }),
+    prisma.question.findMany({ where: { projectId: project.id } }),
+    prisma.member.findMany({ where: { projectId: project.id } }),
   ]);
+  const dismissedKeys = new Set(dismissals.map((d) => d.key));
+  const nameById = new Map(allMembers.map((m) => [m.id, m.name]));
 
   const tasks: SyncTask[] = taskRows.map((t) => ({
     name: t.name,
@@ -39,7 +44,7 @@ export async function loadSyncFeed(memberId: string): Promise<{ memberName: stri
       knowledge: knowledge.map((k) => ({ tag: k.tag, text: k.text, importance: k.importance ?? "normal", createdAt: k.createdAt.toISOString() })),
       lastSeenAt: member.lastSeenAt ? member.lastSeenAt.toISOString() : null,
     },
-    new Set(dismissals.map((d) => d.key))
+    dismissedKeys
   );
 
   // Persisted reconciliation flags ride at the front — a stale spec beats routine news.
@@ -55,7 +60,47 @@ export async function loadSyncFeed(memberId: string): Promise<{ memberName: stri
     createdAt: f.createdAt.toISOString(),
   }));
 
-  return { memberName: member.name, items: [...reconcileItems, ...items] };
+  // Questions reach people through the feed (no separate UI): open questions you can
+  // answer, and answers coming back to the asker.
+  const questionItems: SyncItem[] = [];
+  for (const q of questionRows) {
+    const targets: string[] = parseList(q.targetIds);
+    const asker = nameById.get(q.askerId) ?? "Someone";
+    if (q.status === "open") {
+      const canAnswer = q.askerId !== memberId && (q.audience === "everyone" || targets.includes(memberId));
+      if (canAnswer) {
+        questionItems.push({
+          key: `question:${q.id}`,
+          verdict: "question",
+          intensity: "proactive",
+          text: `${asker} asks: ${q.text}`,
+          actionable: true,
+          taskName: null,
+          boardId: q.boardId,
+          fromName: asker,
+          createdAt: q.createdAt.toISOString(),
+        });
+      }
+    } else if (q.status === "answered" && q.askerId === memberId) {
+      questionItems.push({
+        key: `answer:${q.id}`,
+        verdict: "answer",
+        intensity: "ambient",
+        text: `${q.answererId ? nameById.get(q.answererId) ?? "Someone" : "Someone"} answered “${q.text}”: ${q.answer ?? ""}`,
+        actionable: true,
+        taskName: null,
+        boardId: q.boardId,
+        fromName: q.answererId ? nameById.get(q.answererId) ?? null : null,
+        createdAt: q.createdAt.toISOString(),
+      });
+    }
+  }
+  const freshQuestions = questionItems.filter((q) => !dismissedKeys.has(q.key));
+  const openQ = freshQuestions.filter((q) => q.verdict === "question");
+  const answeredQ = freshQuestions.filter((q) => q.verdict === "answer");
+
+  // Order: questions to answer + stale-spec flags up top, then the feed, answers last.
+  return { memberName: member.name, items: [...openQ, ...reconcileItems, ...items, ...answeredQ] };
 }
 
 /**

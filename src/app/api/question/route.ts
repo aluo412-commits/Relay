@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { parseList } from "@/lib/state";
+import { createQuestion } from "@/lib/questions";
 import type { BoardAction, QuestionDTO } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -91,41 +92,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Pick at least one person to ask" }, { status: 400 });
     }
     const answerType = body.answerType === "yesno" ? "yesno" : "open";
-    // Branching is only allowed for a single-target yes/no question (KTD2).
-    const branchAllowed = audience === "specific" && targetIds.length === 1 && answerType === "yesno";
-    const branchYes = branchAllowed && body.branchYes?.length ? JSON.stringify(body.branchYes) : null;
-    const branchNo = branchAllowed && body.branchNo?.length ? JSON.stringify(body.branchNo) : null;
-
     const asker = c.nameById.get(body.askerId) ?? "Someone";
-    const q = await prisma.question.create({
-      data: {
-        projectId: c.project.id,
-        boardId: body.boardId ?? null,
-        askerId: body.askerId,
-        text: body.text.trim(),
-        audience,
-        visibility,
-        targetIds: JSON.stringify(targetIds),
-        answerType,
-        branchYes,
-        branchNo,
-      },
+    const q = await createQuestion({
+      projectId: c.project.id,
+      askerId: body.askerId,
+      boardId: body.boardId ?? null,
+      text: body.text,
+      audience,
+      visibility,
+      targetIds,
+      answerType,
+      branchYes: body.branchYes,
+      branchNo: body.branchNo,
+      askerName: asker,
+      allMemberIds: c.members.map((m) => m.id),
     });
-
-    // Delivery: reach the asked people (or everyone else).
-    const recipientIds =
-      audience === "everyone" ? c.members.filter((m) => m.id !== body.askerId).map((m) => m.id) : targetIds;
-    if (recipientIds.length) {
-      await prisma.notification.createMany({
-        data: recipientIds.map((rid) => ({
-          projectId: c.project.id,
-          recipientId: rid,
-          kind: "question",
-          text: `${asker} asks: ${body.text!.trim()}`,
-          fromName: asker,
-        })),
-      });
-    }
 
     return NextResponse.json({ question: toDTO(q, body.askerId, c.nameById, c.boardById) });
   } catch (err) {
