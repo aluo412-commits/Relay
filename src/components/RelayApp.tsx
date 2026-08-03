@@ -216,19 +216,19 @@ export default function RelayApp() {
     setConnector(null);
     setBriefing(null);
     setNotifOpen(false);
+    // Read the sync feed (which uses lastSeenAt as the "since your last visit"
+    // boundary) BEFORE the briefing bumps lastSeenAt, then speak up proactively.
     Promise.all([
       fetch(`/api/state?memberId=${id}`).then((r) => r.json()),
-      fetch(`/api/briefing?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/log`).then((r) => r.json()),
       fetch(`/api/notifications?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/compact?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/sync?memberId=${id}`).then((r) => r.json()),
-    ]).then(([s, b, l, n, c, sy]) => {
+    ]).then(([s, l, n, c, sy]) => {
       if (!s.error) {
         setState(s.state);
         setMessages(s.messages ?? []);
       }
-      if (b && !b.error) setBriefing(b.briefing);
       if (l && !l.error) setLogEntries(l.entries ?? []);
       if (n && !n.error) {
         setNotifications(n.notifications ?? []);
@@ -236,6 +236,27 @@ export default function RelayApp() {
       }
       if (c && !c.error) setCompactions(c.entries ?? []);
       if (sy && !sy.error) setSyncItems(sy.items ?? []);
+
+      // Proactive speak-up: after the feed is read, let Relay initiate in chat for
+      // the top urgent+actionable item (deduped server-side so it never repeats).
+      fetch("/api/proactive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: id }),
+      })
+        .then((r) => r.json())
+        .then((p) => {
+          if (p && p.message) setMessages((msgs) => [...msgs, p.message]);
+        })
+        .catch(() => {});
+
+      // Briefing bumps lastSeenAt — run it last so the feed above saw the old value.
+      fetch(`/api/briefing?memberId=${id}`)
+        .then((r) => r.json())
+        .then((b) => {
+          if (b && !b.error) setBriefing(b.briefing);
+        })
+        .catch(() => {});
     });
   }, []);
 

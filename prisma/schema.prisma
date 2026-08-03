@@ -193,6 +193,16 @@ model SyncDismissal {
   @@unique([memberId, key])
 }
 
+// A sync item Relay already spoke up about proactively, so it never repeats.
+model ProactiveDelivery {
+  id        String   @id @default(cuid())
+  memberId  String
+  key       String
+  createdAt DateTime @default(now())
+
+  @@unique([memberId, key])
+}
+
 // Per-member private AI workspace conversation.
 model Message {
   id        String   @id @default(cuid())
