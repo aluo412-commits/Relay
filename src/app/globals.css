@@ -289,6 +289,14 @@ button { font-family: inherit; }
 .tc-meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); }
 
 .composer-hint { flex: none; padding: 8px 16px 0; font-family: var(--font-mono); font-size: 0.72rem; color: var(--ai); letter-spacing: 0.01em; background: var(--bg); }
+/* Compact bar — fold the conversation away; the agent recalls it when relevant */
+.compact-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px 0; background: var(--bg); }
+.compact-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); border-radius: 8px; padding: 5px 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+.compact-btn:hover:not(:disabled) { color: var(--ai); border-color: var(--ai); }
+.compact-btn:disabled { opacity: 0.4; cursor: default; }
+.compact-count { border: none; background: none; color: var(--faint); font-family: var(--font-mono); font-size: 0.68rem; cursor: pointer; padding: 0; }
+.compact-count:hover { color: var(--ai); }
+
 .composer { flex: none; border-top: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 9px; align-items: flex-end; background: var(--bg); }
 .composer textarea { line-height: 1.45; }
 .composer textarea { flex: 1; resize: none; background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 10px 13px; font: inherit; font-size: 0.92rem; color: var(--text); max-height: 120px; line-height: 1.4; }
@@ -467,6 +475,22 @@ button { font-family: inherit; }
 .btn-sm { padding: 5px 12px; font-size: 0.8rem; }
 
 /* drafts toggle (topbar) */
+/* Compacted-context viewer */
+.compact-modal { max-width: min(640px, 94vw); }
+.compact-intro { font-size: 0.84rem; color: var(--muted); line-height: 1.5; margin: 0 0 14px; }
+.compact-empty { font-size: 0.86rem; color: var(--muted); }
+.compact-item { border: 1px solid var(--border); border-radius: 11px; margin-bottom: 9px; overflow: hidden; background: var(--surface); }
+.compact-item.open { border-color: var(--ai); }
+.compact-item-head { width: 100%; text-align: left; display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; background: none; border: none; cursor: pointer; font: inherit; color: inherit; }
+.compact-item-head:hover { background: var(--surface-2); }
+.compact-caret { flex: none; color: var(--faint); font-size: 0.7rem; margin-top: 3px; }
+.compact-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.compact-item-heading { font-weight: 680; font-size: 0.92rem; letter-spacing: -0.01em; }
+.compact-item-summary { font-size: 0.78rem; color: var(--muted); line-height: 1.4; }
+.compact-item-time { flex: none; font-family: var(--font-mono); font-size: 0.64rem; color: var(--faint); margin-top: 3px; }
+.compact-item-body { padding: 4px 14px 14px; border-top: 1px solid var(--border); font-size: 0.86rem; line-height: 1.6; }
+.compact-item-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
+
 .drafts-toggle { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 9px; padding: 6px 11px; font-size: 0.82rem; font-weight: 650; cursor: pointer; }
 .drafts-toggle b { font-family: var(--font-mono); }
 .drafts-toggle.on { background: var(--accent); color: var(--accent-ink); }

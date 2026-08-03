@@ -512,6 +512,38 @@ export async function completeJson<T>(systemPrompt: string, userContent: string,
   }
 }
 
+/** Compress a conversation transcript into a compact memory entry (heading + brief summary). */
+export async function summarizeForCompaction(
+  transcript: string,
+  model?: string
+): Promise<{ heading: string; summary: string }> {
+  const sys =
+    'You compress a conversation into a compact memory entry so it can be re-surfaced later when relevant. ' +
+    'Return ONLY JSON: {"heading": "<=6 words naming the topic", "summary": "1-2 sentences on what was discussed or decided"}. No preamble, no markdown.';
+  const r = await completeJson<{ heading: string; summary: string }>(sys, transcript.slice(0, 8000), model);
+  return {
+    heading: (r?.heading || "").trim() || "Earlier conversation",
+    summary: (r?.summary || "").trim() || "A previous discussion in this workspace.",
+  };
+}
+
+/** Given the user's new message and the list of compacted entries, pick which are relevant to bring back. */
+export async function selectRelevantCompactions(
+  message: string,
+  entries: { id: string; heading: string; summary: string }[],
+  model?: string
+): Promise<string[]> {
+  if (!entries.length) return [];
+  const list = entries.map((e) => `[${e.id}] ${e.heading} — ${e.summary}`).join("\n");
+  const sys =
+    "You decide which past compacted conversations are relevant to the user's new message. " +
+    'Return ONLY JSON {"ids": ["<id>", ...]} listing just the ids whose content would genuinely help with the new message. ' +
+    'Be selective — return {"ids": []} if none clearly apply.';
+  const r = await completeJson<{ ids: string[] }>(sys, `PAST COMPACTIONS:\n${list}\n\nNEW MESSAGE:\n${message}`, model);
+  const valid = new Set(entries.map((e) => e.id));
+  return (Array.isArray(r?.ids) ? r!.ids : []).filter((id) => valid.has(id));
+}
+
 export async function relayTurn(
   systemPrompt: string,
   history: { role: "user" | "assistant"; content: string }[]

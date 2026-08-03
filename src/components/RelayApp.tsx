@@ -39,20 +39,6 @@ function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = Math.min(el.scrollHeight, 200) + "px";
 }
 
-// Compact "time ago" for workstream cards ("now", "3h", "2d").
-function fmtAgo(iso?: string | null) {
-  if (!iso) return "";
-  const d = new Date(iso).getTime();
-  if (isNaN(d)) return "";
-  const s = Math.max(0, Math.floor((Date.now() - d) / 1000));
-  if (s < 60) return "now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
-
 // Templates that the entry chips scaffold into the composer for the AI to help finish.
 const ENTRY_TEMPLATES: { label: string; template: string }[] = [
   {
@@ -102,6 +88,11 @@ interface Artifact {
 }
 const DOCK_ZONE = 210; // px from the right edge that counts as "the sidebar"
 type ArtifactDTO = { title: string; filename: string; markdown: string; kind: "document" | "record" | "slides"; pptxBase64?: string };
+
+// A compacted slice of conversation: the agent's short heading + brief summary,
+// with the full transcript stored behind it. On later turns the agent scans these
+// summaries and pulls back only the ones relevant to what's being discussed now.
+type CompactionDTO = { id: string; heading: string; summary: string; content: string; createdAt: string };
 
 const KANBAN_COLS: { status: TaskStatus; label: string }[] = [
   { status: "new", label: "New" },
@@ -165,7 +156,10 @@ export default function RelayApp() {
   const [view, setView] = useState<"chat" | "boards" | "board">("chat");
   const [activeBoardId, setActiveBoardId] = useState<string>("");
   const [newBoardName, setNewBoardName] = useState("");
-  const [railNewOpen, setRailNewOpen] = useState(false);
+  const [compactions, setCompactions] = useState<CompactionDTO[]>([]);
+  const [compacting, setCompacting] = useState(false);
+  const [compactOpen, setCompactOpen] = useState(false);
+  const [openCompactionId, setOpenCompactionId] = useState<string | null>(null);
   // Relay (coaching chat) is the default surface; the quiet Log is the second mode.
   const [mode, setMode] = useState<"log" | "chat">("chat");
   const [logEntries, setLogEntries] = useState<LogEntryDTO[]>([]);
@@ -212,21 +206,23 @@ export default function RelayApp() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  // Load a member's workspace when identity changes (member-scoped: state, briefing,
-  // log, notifications). Chat + artifacts are stream-scoped and handled separately.
+  // Load a member's workspace when identity changes: state, chat thread, briefing,
+  // log, notifications, and compacted-context entries.
   const loadMember = useCallback((id: string) => {
     setArtifacts([]); // switching WHO you are is a fresh desk
     setConnector(null);
     setBriefing(null);
     setNotifOpen(false);
     Promise.all([
-      fetch(`/api/state`).then((r) => r.json()),
+      fetch(`/api/state?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/briefing?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/log`).then((r) => r.json()),
       fetch(`/api/notifications?memberId=${id}`).then((r) => r.json()),
-    ]).then(([s, b, l, n]) => {
+      fetch(`/api/compact?memberId=${id}`).then((r) => r.json()),
+    ]).then(([s, b, l, n, c]) => {
       if (!s.error) {
         setState(s.state);
+        setMessages(s.messages ?? []);
       }
       if (b && !b.error) setBriefing(b.briefing);
       if (l && !l.error) setLogEntries(l.entries ?? []);
@@ -234,29 +230,13 @@ export default function RelayApp() {
         setNotifications(n.notifications ?? []);
         setUnread(n.unread ?? 0);
       }
+      if (c && !c.error) setCompactions(c.entries ?? []);
     });
   }, []);
 
   useEffect(() => {
     if (memberId) loadMember(memberId);
   }, [memberId, loadMember]);
-
-  // Load THIS workstream's chat thread whenever the member or the active stream
-  // changes — switching a stream swaps the whole conversation context.
-  const loadChat = useCallback((mId: string, bId: string) => {
-    setMessages([]); // avoid flashing the previous stream's thread during the swap
-    setConnector(null);
-    fetch(`/api/state?memberId=${mId}&boardId=${bId}`)
-      .then((r) => r.json())
-      .then((s) => {
-        if (!s.error) setMessages(s.messages ?? []);
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (memberId && activeBoardId) loadChat(memberId, activeBoardId);
-  }, [memberId, activeBoardId, loadChat]);
 
   // Autoscroll to the newest content (also when you swap modes / streams).
   useEffect(() => {
@@ -329,7 +309,7 @@ export default function RelayApp() {
     }
   }
 
-  async function createBoard(landIn: "board" | "chat" = "board") {
+  async function createBoard() {
     const name = newBoardName.trim();
     if (!name) return;
     try {
@@ -343,18 +323,45 @@ export default function RelayApp() {
       setState(data.state);
       setActiveBoardId(data.boardId);
       setNewBoardName("");
-      setRailNewOpen(false);
-      setView(landIn);
-      showToast("Workstream created");
+      setView("board");
+      showToast("Board created");
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
-  // Enter a workstream from the rail: select it and land in its chat/board context.
-  function enterStream(id: string) {
-    setActiveBoardId(id);
-    if (view === "boards") setView("board");
+  // Compact the current conversation into a summarized entry, then clear the live
+  // thread. The agent re-surfaces relevant entries automatically on later turns.
+  async function compactNow() {
+    if (compacting || !memberId || messages.length === 0) return;
+    setCompacting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/compact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Compact failed");
+      if (data.entry) setCompactions((c) => [data.entry, ...c]);
+      setMessages([]);
+      showToast("Conversation compacted");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setCompacting(false);
+    }
+  }
+
+  async function deleteCompaction(id: string) {
+    setCompactions((c) => c.filter((x) => x.id !== id));
+    if (openCompactionId === id) setOpenCompactionId(null);
+    try {
+      await fetch(`/api/compact?id=${id}`, { method: "DELETE" });
+    } catch {
+      /* non-critical */
+    }
   }
 
   function addArtifacts(incoming: ArtifactDTO[]) {
@@ -827,22 +834,31 @@ export default function RelayApp() {
             </button>
           ))}
         </div>
-        {(() => {
-          const mine = artifacts.filter((a) => !a.boardId || a.boardId === activeBoardId);
-          return mine.length > 0 ? (
-            <button
-              className="drafts-toggle on"
-              onClick={() => openArtifact(mine[mine.length - 1].id)}
-              title="Open latest artifact in this workstream"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M4 2h6l3 3v9H4V2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-                <path d="M9.5 2v3.5H13" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-              </svg>
-              Artifacts <b>{mine.length}</b>
-            </button>
-          ) : null;
-        })()}
+        {artifacts.length > 0 ? (
+          <button
+            className="drafts-toggle on"
+            onClick={() => openArtifact(artifacts[artifacts.length - 1].id)}
+            title="Open latest artifact"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M4 2h6l3 3v9H4V2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path d="M9.5 2v3.5H13" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
+            Artifacts <b>{artifacts.length}</b>
+          </button>
+        ) : null}
+        {compactions.length > 0 ? (
+          <button
+            className="drafts-toggle on"
+            onClick={() => setCompactOpen((v) => !v)}
+            title="Compacted context — the agent pulls these back when relevant"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            Compacted <b>{compactions.length}</b>
+          </button>
+        ) : null}
         <div className="bell-wrap">
           <button
             className="icon-btn bell"
@@ -937,78 +953,6 @@ export default function RelayApp() {
         </div>
       )}
 
-      <div className="shell">
-        {/* WORKSTREAM RAIL — context organized around work, not chat sessions.
-            Each card is a portal into a whole context (its chat + tasks + artifacts). */}
-        <aside className="rail">
-          <div className="rail-head">
-            <span className="rail-title">Workstreams</span>
-            <button
-              className="rail-add"
-              title="New workstream"
-              onClick={() => {
-                setRailNewOpen((v) => !v);
-                setNewBoardName("");
-              }}
-            >
-              +
-            </button>
-          </div>
-          <div className="rail-list">
-            {boards.map((b) => {
-              const active = b.id === activeBoardId;
-              const artCount = artifacts.filter((a) => a.boardId === b.id).length;
-              return (
-                <button
-                  key={b.id}
-                  className={`stream-card${active ? " active" : ""}`}
-                  onClick={() => enterStream(b.id)}
-                  style={{ ["--stream" as string]: b.color ?? "var(--accent)" }}
-                >
-                  <span className="stream-bar" />
-                  <span className="stream-main">
-                    <span className="stream-name-row">
-                      <span className="stream-name">{b.name}</span>
-                      {b.lastActivityAt ? <span className="stream-ago">{fmtAgo(b.lastActivityAt)}</span> : null}
-                    </span>
-                    {b.summary ? <span className="stream-summary">{b.summary}</span> : null}
-                    <span className="stream-stats">
-                      <span className="stream-ring" style={{ ["--p" as string]: `${b.progress}%` }} title={`${b.progress}% done`}>
-                        <span className="stream-ring-num">{b.progress}</span>
-                      </span>
-                      <span className="stream-meta">
-                        {b.openCount} open{artCount ? ` · ${artCount} artifact${artCount > 1 ? "s" : ""}` : ""}
-                      </span>
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {railNewOpen ? (
-            <div className="rail-new">
-              <input
-                className="d-input"
-                autoFocus
-                placeholder="Name your workstream…"
-                value={newBoardName}
-                onChange={(e) => setNewBoardName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") createBoard("chat");
-                  if (e.key === "Escape") setRailNewOpen(false);
-                }}
-              />
-              <button className="btn btn-primary btn-sm" onClick={() => createBoard("chat")} disabled={!newBoardName.trim()}>
-                Create
-              </button>
-            </div>
-          ) : null}
-          <button className="rail-boards" onClick={() => setView("boards")} title="See all workstreams as boards">
-            ▤ All boards
-          </button>
-        </aside>
-
-        <div className="view-area">
       {view === "chat" && (
       <div className="panes">
         {/* WORKSPACE */}
@@ -1112,7 +1056,7 @@ export default function RelayApp() {
             )}
             {messages.length === 0 && !sending ? (
               <div className="start-here">
-                <div className="start-eyebrow">{activeBoard?.name ?? "Workstream"} · new context</div>
+                <div className="start-eyebrow">Ask Relay</div>
                 <h2 className="start-title">Start where the work is, {currentMember.name}.</h2>
                 <p className="start-sub">
                   Relay turns what you say into shared, structured work. Do one of these — Relay takes it from there.
@@ -1131,10 +1075,10 @@ export default function RelayApp() {
                     <span className="start-step-t">Hand Relay a goal</span>
                     <span className="start-step-d">It drafts tasks, records, even a deck — you publish.</span>
                   </button>
-                  <button className="start-step" onClick={() => setRailNewOpen(true)}>
-                    <span className="start-step-n">Stream</span>
-                    <span className="start-step-t">Open a workstream</span>
-                    <span className="start-step-d">A fresh context — its own chat, board, and files.</span>
+                  <button className="start-step" onClick={() => setView("boards")}>
+                    <span className="start-step-n">Boards</span>
+                    <span className="start-step-t">See the work</span>
+                    <span className="start-step-d">Open the Kanban boards and everyone&apos;s tasks.</span>
                   </button>
                 </div>
               </div>
@@ -1213,6 +1157,26 @@ export default function RelayApp() {
 
           {input.includes("\n") && input.includes("**") ? (
             <div className="composer-hint">✨ Fill in what you know — Relay completes the rest when you send.</div>
+          ) : null}
+          {messages.length > 0 || compactions.length > 0 ? (
+            <div className="compact-bar">
+              <button
+                className="compact-btn"
+                onClick={compactNow}
+                disabled={compacting || messages.length === 0}
+                title="Fold this conversation into a summarized entry and start fresh. Relay pulls it back when it's relevant."
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                {compacting ? "Compacting…" : "Compact"}
+              </button>
+              {compactions.length > 0 ? (
+                <button className="compact-count" onClick={() => setCompactOpen(true)} title="View compacted context">
+                  {compactions.length} compacted · Relay draws on these
+                </button>
+              ) : null}
+            </div>
           ) : null}
           <div className="composer">
             <textarea
@@ -1355,7 +1319,7 @@ export default function RelayApp() {
                     if (e.key === "Enter") createBoard();
                   }}
                 />
-                <button className="btn btn-primary btn-sm" onClick={() => createBoard("board")} disabled={!newBoardName.trim()}>
+                <button className="btn btn-primary btn-sm" onClick={() => createBoard()} disabled={!newBoardName.trim()}>
                   + Create board
                 </button>
               </div>
@@ -1387,17 +1351,13 @@ export default function RelayApp() {
           <div className="board-page-body">{kanban}</div>
         </div>
       )}
-        </div>{/* /view-area */}
-      </div>{/* /shell */}
 
-      {/* Free-floating windows — finished artifacts + editable drafts, scoped to the
-          active workstream. Drag into the right sidebar to dock anywhere; tabs
-          compress once several pile up. */}
+      {/* Free-floating windows — finished artifacts + editable drafts. Drag into the
+          right sidebar to dock anywhere; tabs compress once several pile up. */}
       {(() => {
-        const streamArtifacts = artifacts.filter((a) => !a.boardId || a.boardId === activeBoardId);
-        const dockedCount = streamArtifacts.filter((a) => a.docked).length;
+        const dockedCount = artifacts.filter((a) => a.docked).length;
         const compact = dockedCount > 5;
-        return streamArtifacts.map((a) =>
+        return artifacts.map((a) =>
           a.docked ? (
             <div
               key={a.id}
@@ -1477,6 +1437,56 @@ export default function RelayApp() {
           onSubmitProgress={submitProgress}
           onReview={reviewProgress}
         />
+      )}
+
+      {compactOpen && (
+        <div className="modal-overlay" onClick={() => setCompactOpen(false)}>
+          <div className="modal compact-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-head">
+              <span className="modal-kind">Compacted context</span>
+              <button className="modal-x" onClick={() => setCompactOpen(false)} aria-label="Close">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="compact-intro">
+                Folded-away conversations. Relay reads these headings on each turn and pulls back only the ones
+                relevant to what you&apos;re discussing now — so context stays light without losing anything.
+              </p>
+              {compactions.length === 0 ? (
+                <p className="compact-empty">Nothing compacted yet. Hit <b>Compact</b> to fold a conversation away.</p>
+              ) : (
+                compactions.map((c) => {
+                  const open = openCompactionId === c.id;
+                  return (
+                    <div key={c.id} className={`compact-item${open ? " open" : ""}`}>
+                      <button className="compact-item-head" onClick={() => setOpenCompactionId(open ? null : c.id)}>
+                        <span className="compact-caret">{open ? "▾" : "▸"}</span>
+                        <span className="compact-item-main">
+                          <span className="compact-item-heading">{c.heading}</span>
+                          <span className="compact-item-summary">{c.summary}</span>
+                        </span>
+                        <span className="compact-item-time">{fmtStamp(c.createdAt)}</span>
+                      </button>
+                      {open ? (
+                        <div className="compact-item-body">
+                          <RichText text={c.content} />
+                          <div className="compact-item-actions">
+                            <button className="btn btn-ghost btn-sm" onClick={() => deleteCompaction(c.id)}>
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {settingsOpen && (

@@ -170,6 +170,19 @@ model AgentLog {
   createdAt   DateTime @default(now())
 }
 
+// A compacted slice of a member's conversation: the agent's short heading + brief
+// summary, with the full transcript stored behind it. On later turns the agent
+// scans these summaries and pulls back only the ones relevant to the new message.
+model CompactEntry {
+  id        String   @id @default(cuid())
+  projectId String
+  memberId  String
+  heading   String
+  summary   String
+  content   String // the full compacted transcript (markdown)
+  createdAt DateTime @default(now())
+}
+
 // Per-member private AI workspace conversation.
 model Message {
   id        String   @id @default(cuid())

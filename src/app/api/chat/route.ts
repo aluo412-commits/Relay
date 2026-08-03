@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadState, proposalsToDrafts } from "@/lib/state";
 import { buildSystemPrompt } from "@/lib/prompts";
-import { runAgentTurn } from "@/lib/minimax";
+import { runAgentTurn, selectRelevantCompactions } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +45,30 @@ export async function POST(req: NextRequest) {
 
     const activeBoard = state.boards.find((b) => b.id === boardId) ?? state.boards[0];
     if (!activeBoard) return NextResponse.json({ error: "No board found" }, { status: 404 });
-    const systemPrompt = buildSystemPrompt(state, activeBoard, member.name);
+
+    // Compacted context: the agent scans past-conversation summaries and pulls back
+    // only the ones relevant to this message, so context stays light without loss.
+    let recalled = "";
+    const compactions = await prisma.compactEntry.findMany({
+      where: { projectId: state.project.id, memberId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, heading: true, summary: true, content: true },
+    });
+    if (compactions.length) {
+      const relevantIds = await selectRelevantCompactions(
+        message.trim(),
+        compactions.map((c) => ({ id: c.id, heading: c.heading, summary: c.summary })),
+        state.project.model
+      );
+      const chosen = compactions.filter((c) => relevantIds.includes(c.id));
+      if (chosen.length) {
+        recalled =
+          "\n\nRELEVANT PAST CONTEXT (compacted earlier, recalled because it fits this message — use it, don't repeat it verbatim):\n" +
+          chosen.map((c) => `### ${c.heading}\n${c.content}`).join("\n\n");
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(state, activeBoard, member.name) + recalled;
     const result = await runAgentTurn(systemPrompt, history, state.project.model);
 
     // Persist Relay's visible reply (store just the reply text so history stays clean).
