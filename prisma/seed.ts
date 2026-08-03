@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 // Fresh, empty workspace — no demo scenario. A team, a few members, one empty board.
 async function main() {
   // wipe everything
+  await prisma.question.deleteMany();
   await prisma.reconcileFlag.deleteMany();
   await prisma.proactiveDelivery.deleteMany();
   await prisma.syncDismissal.deleteMany();

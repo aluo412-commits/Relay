@@ -170,6 +170,28 @@ model AgentLog {
   createdAt   DateTime @default(now())
 }
 
+// A question hung on a workstream: directed at specific people or everyone, with a
+// visibility rule and optional answer-conditioned actions. Answers are AI-mediated.
+model Question {
+  id           String   @id @default(cuid())
+  projectId    String
+  boardId      String?
+  askerId      String
+  text         String
+  audience     String // "specific" | "everyone"
+  visibility   String // "private" | "team"
+  targetIds    String  @default("[]") // JSON array of member ids (empty for "everyone")
+  answerType   String   @default("open") // "open" | "yesno"
+  branchYes    String? // JSON BoardAction[] applied if answered "yes"
+  branchNo     String? // JSON BoardAction[] applied if answered "no"
+  status       String   @default("open") // "open" | "answered" | "resolved"
+  answerRaw    String?
+  answer       String? // AI-polished
+  answererId   String?
+  firedActions String? // JSON: labels of branch actions that ran
+  createdAt    DateTime @default(now())
+}
+
 // A compacted slice of a member's conversation: the agent's short heading + brief
 // summary, with the full transcript stored behind it. On later turns the agent
 // scans these summaries and pulls back only the ones relevant to the new message.

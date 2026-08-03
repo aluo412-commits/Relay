@@ -21,6 +21,7 @@ import type {
   DraftPayload,
   MemberDTO,
   SyncItem,
+  QuestionDTO,
 } from "@/lib/types";
 
 type Detail = { kind: "task"; data: TaskDTO } | { kind: "update"; data: UpdateDTO };
@@ -159,6 +160,8 @@ export default function RelayApp() {
   const [activeBoardId, setActiveBoardId] = useState<string>("");
   const [newBoardName, setNewBoardName] = useState("");
   const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
+  const [questions, setQuestions] = useState<QuestionDTO[]>([]);
+  const [questionsOpen, setQuestionsOpen] = useState(false);
   const [compactions, setCompactions] = useState<CompactionDTO[]>([]);
   const [compacting, setCompacting] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
@@ -224,7 +227,8 @@ export default function RelayApp() {
       fetch(`/api/notifications?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/compact?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/sync?memberId=${id}`).then((r) => r.json()),
-    ]).then(([s, l, n, c, sy]) => {
+      fetch(`/api/question?memberId=${id}`).then((r) => r.json()),
+    ]).then(([s, l, n, c, sy, qs]) => {
       if (!s.error) {
         setState(s.state);
         setMessages(s.messages ?? []);
@@ -236,6 +240,7 @@ export default function RelayApp() {
       }
       if (c && !c.error) setCompactions(c.entries ?? []);
       if (sy && !sy.error) setSyncItems(sy.items ?? []);
+      if (qs && !qs.error) setQuestions(qs.questions ?? []);
 
       // Proactive speak-up: after the feed is read, let Relay initiate in chat for
       // the top urgent+actionable item (deduped server-side so it never repeats).
@@ -300,6 +305,53 @@ export default function RelayApp() {
     if (state && memberId) refreshSync();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
+
+  const refreshQuestions = useCallback(() => {
+    if (!memberId) return;
+    fetch(`/api/question?memberId=${memberId}`)
+      .then((r) => r.json())
+      .then((qs) => {
+        if (qs && !qs.error) setQuestions(qs.questions ?? []);
+      })
+      .catch(() => {});
+  }, [memberId]);
+
+  async function createQuestion(payload: {
+    text: string;
+    audience: "specific" | "everyone";
+    visibility: "private" | "team";
+    targetIds: string[];
+    answerType: "open" | "yesno";
+    branchYes?: BoardAction[];
+    branchNo?: BoardAction[];
+  }) {
+    const res = await fetch("/api/question", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ askerId: memberId, boardId: activeBoardId, ...payload }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't post the question");
+    refreshQuestions();
+    showToast("Question posted");
+  }
+
+  async function answerQuestion(questionId: string, answerRaw: string, choice?: "yes" | "no") {
+    const res = await fetch("/api/question/answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ questionId, memberId, answerRaw, choice }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't send the answer");
+    refreshQuestions();
+    if (data.fired?.length) {
+      loadMember(memberId); // a branch changed the board
+      showToast(data.fired.join(" · "));
+    } else {
+      showToast("Answer sent");
+    }
+  }
 
   async function dismissSync(key: string) {
     setSyncItems((items) => items.filter((i) => i.key !== key));
@@ -939,6 +991,22 @@ export default function RelayApp() {
             Compacted <b>{compactions.length}</b>
           </button>
         ) : null}
+        {(() => {
+          const toAnswer = questions.filter((q) => q.canAnswer).length;
+          return (
+            <button
+              className={`drafts-toggle on${toAnswer ? " urgent" : ""}`}
+              onClick={() => setQuestionsOpen(true)}
+              title="Questions on the board"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M6 6a2 2 0 1 1 2.6 1.9c-.6.2-.6.6-.6 1.1M8 11.5v.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="8" cy="8" r="6.3" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
+              Questions{toAnswer ? <b>{toAnswer}</b> : questions.length ? <b>{questions.length}</b> : null}
+            </button>
+          );
+        })()}
         <div className="bell-wrap">
           <button
             className="icon-btn bell"
@@ -970,7 +1038,7 @@ export default function RelayApp() {
                   notifications.map((n) => (
                     <div key={n.id} className={`notif imp-${n.importance ?? "normal"}`}>
                       <span className={`notif-kind ${n.kind}`}>
-                        {n.kind === "assignment" ? "◉ assigned" : n.kind === "connector" ? "⇄ shared" : "◆ news"}
+                        {n.kind === "assignment" ? "◉ assigned" : n.kind === "connector" ? "⇄ shared" : n.kind === "question" ? "? question" : "◆ news"}
                         {n.importance && n.importance !== "normal" ? <ImportanceBadge level={n.importance} /> : null}
                       </span>
                       <div className="notif-text">{n.text}</div>
@@ -1520,6 +1588,18 @@ export default function RelayApp() {
         />
       )}
 
+      {questionsOpen && (
+        <QuestionsModal
+          questions={questions}
+          members={state.members}
+          tasks={allTasks}
+          currentMemberId={memberId}
+          onClose={() => setQuestionsOpen(false)}
+          onCreate={createQuestion}
+          onAnswer={answerQuestion}
+        />
+      )}
+
       {compactOpen && (
         <div className="modal-overlay" onClick={() => setCompactOpen(false)}>
           <div className="modal compact-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
@@ -1683,6 +1763,241 @@ function SyncPanel({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Questions on the board: hang a question (audience × visibility, optional if/then),
+// see what you can answer, and read answered ones. Answers are AI-mediated server-side.
+function QuestionsModal({
+  questions,
+  members,
+  tasks,
+  currentMemberId,
+  onClose,
+  onCreate,
+  onAnswer,
+}: {
+  questions: QuestionDTO[];
+  members: MemberDTO[];
+  tasks: TaskDTO[];
+  currentMemberId: string;
+  onClose: () => void;
+  onCreate: (p: {
+    text: string;
+    audience: "specific" | "everyone";
+    visibility: "private" | "team";
+    targetIds: string[];
+    answerType: "open" | "yesno";
+    branchYes?: BoardAction[];
+    branchNo?: BoardAction[];
+  }) => Promise<void>;
+  onAnswer: (id: string, raw: string, choice?: "yes" | "no") => Promise<void>;
+}) {
+  const [asking, setAsking] = useState(questions.length === 0);
+  const [text, setText] = useState("");
+  const [audience, setAudience] = useState<"specific" | "everyone">("specific");
+  const [visibility, setVisibility] = useState<"private" | "team">("team");
+  const [targetIds, setTargetIds] = useState<string[]>([]);
+  const [answerType, setAnswerType] = useState<"open" | "yesno">("open");
+  const [yesTask, setYesTask] = useState("");
+  const [yesStatus, setYesStatus] = useState<TaskStatus>("done");
+  const [noTask, setNoTask] = useState("");
+  const [noStatus, setNoStatus] = useState<TaskStatus>("blocked");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const others = members.filter((m) => m.id !== currentMemberId);
+  const branchOk = audience === "specific" && targetIds.length === 1 && answerType === "yesno";
+
+  const toggleTarget = (id: string) =>
+    setTargetIds((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
+
+  async function submit() {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const branchYes: BoardAction[] | undefined = branchOk && yesTask ? [{ type: "update_task", task: yesTask, status: yesStatus }] : undefined;
+      const branchNo: BoardAction[] | undefined = branchOk && noTask ? [{ type: "update_task", task: noTask, status: noStatus }] : undefined;
+      await onCreate({ text: text.trim(), audience, visibility, targetIds, answerType, branchYes, branchNo });
+      setText("");
+      setTargetIds([]);
+      setAnswerType("open");
+      setYesTask("");
+      setNoTask("");
+      setAsking(false);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal q-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div className="modal-head">
+          <span className="modal-kind">Questions</span>
+          <button className="modal-x" onClick={onClose} aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="modal-body">
+          {asking ? (
+            <div className="q-compose">
+              <textarea
+                className="d-input"
+                rows={2}
+                placeholder="What do you need to know?"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                autoFocus
+              />
+              <div className="q-row">
+                <div className="q-seg">
+                  <button className={audience === "specific" ? "on" : ""} onClick={() => setAudience("specific")}>Ask specific people</button>
+                  <button className={audience === "everyone" ? "on" : ""} onClick={() => setAudience("everyone")}>Ask everyone</button>
+                </div>
+              </div>
+              {audience === "specific" ? (
+                <div className="q-targets">
+                  {others.map((m) => (
+                    <button
+                      key={m.id}
+                      className={`q-chip${targetIds.includes(m.id) ? " on" : ""}`}
+                      onClick={() => toggleTarget(m.id)}
+                    >
+                      <span className="av" style={{ background: m.color }}>{initials(m.name)}</span>
+                      {m.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <div className="q-row">
+                <div className="q-seg">
+                  <button className={visibility === "private" ? "on" : ""} onClick={() => setVisibility("private")}>Private</button>
+                  <button className={visibility === "team" ? "on" : ""} onClick={() => setVisibility("team")}>Visible to team</button>
+                </div>
+                <div className="q-seg">
+                  <button className={answerType === "open" ? "on" : ""} onClick={() => setAnswerType("open")}>Open answer</button>
+                  <button className={answerType === "yesno" ? "on" : ""} onClick={() => setAnswerType("yesno")}>Yes / No</button>
+                </div>
+              </div>
+              {branchOk ? (
+                <div className="q-branch">
+                  <div className="q-branch-h">On answer, do this (optional):</div>
+                  <div className="q-branch-row">
+                    <span className="q-branch-lbl">If yes →</span>
+                    <select className="d-input" value={yesTask} onChange={(e) => setYesTask(e.target.value)}>
+                      <option value="">(nothing)</option>
+                      {tasks.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                    </select>
+                    <select className="d-input" value={yesStatus} onChange={(e) => setYesStatus(e.target.value as TaskStatus)}>
+                      {(["new", "inprogress", "blocked", "done"] as TaskStatus[]).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+                    </select>
+                  </div>
+                  <div className="q-branch-row">
+                    <span className="q-branch-lbl">If no →</span>
+                    <select className="d-input" value={noTask} onChange={(e) => setNoTask(e.target.value)}>
+                      <option value="">(nothing)</option>
+                      {tasks.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                    </select>
+                    <select className="d-input" value={noStatus} onChange={(e) => setNoStatus(e.target.value as TaskStatus)}>
+                      {(["new", "inprogress", "blocked", "done"] as TaskStatus[]).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ) : answerType === "yesno" && audience === "specific" && targetIds.length !== 1 ? (
+                <div className="q-hint">Pick exactly one person to attach if-yes / if-no actions.</div>
+              ) : null}
+              {err ? <div className="banner">{err}</div> : null}
+              <div className="q-actions">
+                <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim() || (audience === "specific" && !targetIds.length)}>
+                  {busy ? "Posting…" : "Post question"}
+                </button>
+                {questions.length ? (
+                  <button className="btn btn-ghost" onClick={() => setAsking(false)}>See questions</button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <>
+              <button className="btn btn-primary q-new" onClick={() => setAsking(true)}>+ Ask a question</button>
+              {questions.length === 0 ? (
+                <p className="q-empty">No questions yet. Hang one on the board and Relay routes it.</p>
+              ) : (
+                questions.map((q) => (
+                  <QuestionCard key={q.id} q={q} onAnswer={onAnswer} />
+                ))
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuestionCard({ q, onAnswer }: { q: QuestionDTO; onAnswer: (id: string, raw: string, choice?: "yes" | "no") => Promise<void> }) {
+  const [raw, setRaw] = useState("");
+  const [choice, setChoice] = useState<"yes" | "no" | "">("");
+  const [busy, setBusy] = useState(false);
+
+  async function send() {
+    if (!raw.trim() || busy) return;
+    if (q.answerType === "yesno" && !choice) return;
+    setBusy(true);
+    try {
+      await onAnswer(q.id, raw.trim(), choice || undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const audienceLabel =
+    q.audience === "everyone" ? "everyone" : q.targets.join(", ");
+  return (
+    <div className={`q-card ${q.status}`}>
+      <div className="q-card-head">
+        <span className="q-card-text">{q.text}</span>
+        <span className={`q-badge ${q.status}`}>{q.status}</span>
+      </div>
+      <div className="q-card-meta">
+        {q.asker ?? "?"} → {audienceLabel} · {q.visibility}
+        {q.answerType === "yesno" ? " · yes/no" : ""}
+        {q.hasBranch ? " · has actions" : ""}
+      </div>
+      {q.status === "answered" ? (
+        <div className="q-answer">
+          <div className="q-answer-by">{q.answerer ?? "Someone"} answered</div>
+          <div className="q-answer-text"><RichText text={q.answer ?? ""} /></div>
+          {q.firedActions.length ? <div className="q-fired">✓ {q.firedActions.join(" · ")}</div> : null}
+        </div>
+      ) : q.canAnswer ? (
+        <div className="q-answer-form">
+          {q.answerType === "yesno" ? (
+            <div className="q-seg q-yesno">
+              <button className={choice === "yes" ? "on" : ""} onClick={() => setChoice("yes")}>Yes</button>
+              <button className={choice === "no" ? "on" : ""} onClick={() => setChoice("no")}>No</button>
+            </div>
+          ) : null}
+          <textarea
+            className="d-input"
+            rows={2}
+            placeholder="Your answer — Relay will tidy it up"
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+          />
+          <button className="btn btn-primary btn-sm" onClick={send} disabled={busy || !raw.trim() || (q.answerType === "yesno" && !choice)}>
+            {busy ? "Sending…" : "Answer"}
+          </button>
+        </div>
+      ) : (
+        <div className="q-waiting">Waiting on {audienceLabel}…</div>
+      )}
     </div>
   );
 }

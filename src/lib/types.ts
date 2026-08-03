@@ -197,7 +197,7 @@ export interface LogEntryDTO {
 // A "for you" delivery item.
 export interface NotificationDTO {
   id: string;
-  kind: "assignment" | "connector" | "share";
+  kind: "assignment" | "connector" | "share" | "question";
   text: string;
   importance: Importance | null;
   fromName: string | null;
@@ -205,6 +205,32 @@ export interface NotificationDTO {
   taskName: string | null;
   read: boolean;
   createdAt: string;
+}
+
+// ---- Questions on the board ----
+
+export type QuestionAudience = "specific" | "everyone";
+export type QuestionVisibility = "private" | "team";
+export type QuestionAnswerType = "open" | "yesno";
+
+export interface QuestionDTO {
+  id: string;
+  boardId: string | null;
+  boardName: string | null;
+  asker: string | null;
+  text: string;
+  audience: QuestionAudience;
+  visibility: QuestionVisibility;
+  targets: string[]; // member names asked
+  answerType: QuestionAnswerType;
+  hasBranch: boolean;
+  status: "open" | "answered" | "resolved";
+  answer: string | null;
+  answerer: string | null;
+  firedActions: string[];
+  createdAt: string;
+  canAnswer: boolean; // is the current member allowed to answer?
+  mine: boolean; // did the current member ask it?
 }
 
 // ---- Active-Sync engine ----
