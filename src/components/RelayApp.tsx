@@ -20,6 +20,7 @@ import type {
   NotificationDTO,
   DraftPayload,
   MemberDTO,
+  SyncItem,
 } from "@/lib/types";
 
 type Detail = { kind: "task"; data: TaskDTO } | { kind: "update"; data: UpdateDTO };
@@ -157,6 +158,7 @@ export default function RelayApp() {
   const [view, setView] = useState<"chat" | "boards" | "board">("chat");
   const [activeBoardId, setActiveBoardId] = useState<string>("");
   const [newBoardName, setNewBoardName] = useState("");
+  const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
   const [compactions, setCompactions] = useState<CompactionDTO[]>([]);
   const [compacting, setCompacting] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
@@ -220,7 +222,8 @@ export default function RelayApp() {
       fetch(`/api/log`).then((r) => r.json()),
       fetch(`/api/notifications?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/compact?memberId=${id}`).then((r) => r.json()),
-    ]).then(([s, b, l, n, c]) => {
+      fetch(`/api/sync?memberId=${id}`).then((r) => r.json()),
+    ]).then(([s, b, l, n, c, sy]) => {
       if (!s.error) {
         setState(s.state);
         setMessages(s.messages ?? []);
@@ -232,12 +235,51 @@ export default function RelayApp() {
         setUnread(n.unread ?? 0);
       }
       if (c && !c.error) setCompactions(c.entries ?? []);
+      if (sy && !sy.error) setSyncItems(sy.items ?? []);
     });
   }, []);
 
   useEffect(() => {
     if (memberId) loadMember(memberId);
   }, [memberId, loadMember]);
+
+  // Keep the "in sync" feed current after any state-changing action, and on a light
+  // interval so ambient awareness stays live without a manual refresh.
+  const refreshSync = useCallback(() => {
+    if (!memberId) return;
+    fetch(`/api/sync?memberId=${memberId}`)
+      .then((r) => r.json())
+      .then((sy) => {
+        if (sy && !sy.error) setSyncItems(sy.items ?? []);
+      })
+      .catch(() => {});
+  }, [memberId]);
+
+  useEffect(() => {
+    if (!memberId) return;
+    const t = window.setInterval(refreshSync, 45000);
+    return () => window.clearInterval(t);
+  }, [memberId, refreshSync]);
+
+  // Any change to shared state can change what's relevant to you — recompute the feed.
+  useEffect(() => {
+    if (state && memberId) refreshSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  async function dismissSync(key: string) {
+    setSyncItems((items) => items.filter((i) => i.key !== key));
+    if (!memberId) return;
+    try {
+      await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId, key }),
+      });
+    } catch {
+      /* non-critical */
+    }
+  }
 
   // Autoscroll to the newest content (also when you swap modes / streams).
   useEffect(() => {
@@ -1047,6 +1089,7 @@ export default function RelayApp() {
           ) : (
           <>
           <div className="stream" ref={streamRef}>
+            <SyncPanel items={syncItems} onOpenTask={openTaskByName} onDismiss={dismissSync} />
             {briefing && (
               <BriefingCard
                 b={briefing}
@@ -1557,6 +1600,55 @@ export default function RelayApp() {
       )}
 
       <div className={`toast${toast ? " show" : ""}`}>{toast}</div>
+    </div>
+  );
+}
+
+// The "In sync" panel — an always-current, ranked digest of what changed that
+// touches you. The AI keeps it true; you glance instead of checking a bell.
+const SYNC_ICON: Record<SyncItem["verdict"], string> = {
+  deadline: "◷",
+  unblocked: "✦",
+  blocked: "⛔",
+  assigned: "◉",
+  reconcile: "⟳",
+  fyi: "◆",
+};
+
+function SyncPanel({
+  items,
+  onOpenTask,
+  onDismiss,
+}: {
+  items: SyncItem[];
+  onOpenTask: (name: string) => void;
+  onDismiss: (key: string) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <div className="sync-panel">
+      <div className="sync-head">
+        <span className="sync-title">In sync</span>
+        <span className="sync-sub">what changed that touches you</span>
+      </div>
+      <div className="sync-list">
+        {items.map((it) => (
+          <div key={it.key} className={`sync-item v-${it.verdict}`}>
+            <span className="sync-icon">{SYNC_ICON[it.verdict]}</span>
+            <span className="sync-text">{it.text}</span>
+            <span className="sync-actions">
+              {it.taskName ? (
+                <button className="sync-act" onClick={() => onOpenTask(it.taskName as string)}>
+                  Open
+                </button>
+              ) : null}
+              <button className="sync-x" title="Dismiss" onClick={() => onDismiss(it.key)}>
+                ×
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

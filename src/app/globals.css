@@ -289,6 +289,27 @@ button { font-family: inherit; }
 .tc-meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); }
 
 .composer-hint { flex: none; padding: 8px 16px 0; font-family: var(--font-mono); font-size: 0.72rem; color: var(--ai); letter-spacing: 0.01em; background: var(--bg); }
+/* "In sync" panel — the ambient, always-current relevance feed */
+.sync-panel { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; margin-bottom: 4px; }
+.sync-head { display: flex; align-items: baseline; gap: 9px; padding: 10px 14px 8px; border-bottom: 1px solid var(--border); }
+.sync-title { font-weight: 750; font-size: 0.92rem; letter-spacing: -0.01em; }
+.sync-sub { font-family: var(--font-mono); font-size: 0.64rem; color: var(--faint); text-transform: uppercase; letter-spacing: 0.08em; }
+.sync-list { display: flex; flex-direction: column; }
+.sync-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); font-size: 0.86rem; }
+.sync-item:last-child { border-bottom: none; }
+.sync-icon { flex: none; width: 18px; text-align: center; color: var(--muted); }
+.sync-item.v-deadline .sync-icon { color: var(--bad); }
+.sync-item.v-unblocked .sync-icon { color: var(--good); }
+.sync-item.v-blocked .sync-icon { color: var(--warn); }
+.sync-item.v-assigned .sync-icon { color: var(--ai); }
+.sync-item.v-reconcile .sync-icon { color: var(--accent); }
+.sync-text { flex: 1; min-width: 0; line-height: 1.4; }
+.sync-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.sync-act { border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); border-radius: 7px; padding: 3px 9px; font-size: 0.74rem; font-weight: 650; cursor: pointer; }
+.sync-act:hover { color: var(--ai); border-color: var(--ai); }
+.sync-x { border: none; background: none; color: var(--faint); font-size: 1.05rem; line-height: 1; cursor: pointer; padding: 0 4px; }
+.sync-x:hover { color: var(--text); }
+
 /* Compact bar — fold the conversation away; the agent recalls it when relevant */
 .compact-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px 0; background: var(--bg); }
 .compact-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); border-radius: 8px; padding: 5px 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; }

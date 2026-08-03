@@ -183,6 +183,16 @@ model CompactEntry {
   createdAt DateTime @default(now())
 }
 
+// A sync-feed item a member dismissed, so the ambient panel doesn't re-surface it.
+model SyncDismissal {
+  id        String   @id @default(cuid())
+  memberId  String
+  key       String
+  createdAt DateTime @default(now())
+
+  @@unique([memberId, key])
+}
+
 // Per-member private AI workspace conversation.
 model Message {
   id        String   @id @default(cuid())
