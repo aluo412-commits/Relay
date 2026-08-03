@@ -22,11 +22,16 @@ export async function POST(req: NextRequest) {
   try {
     const { memberId, key } = (await req.json()) as { memberId?: string; key?: string };
     if (!memberId || !key) return NextResponse.json({ error: "memberId and key are required" }, { status: 400 });
-    await prisma.syncDismissal.upsert({
-      where: { memberId_key: { memberId, key } },
-      create: { memberId, key },
-      update: {},
-    });
+    if (key.startsWith("reconcile:")) {
+      // Dismissing a reconcile item resolves its flag.
+      await prisma.reconcileFlag.updateMany({ where: { id: key.slice("reconcile:".length), memberId }, data: { resolved: true } });
+    } else {
+      await prisma.syncDismissal.upsert({
+        where: { memberId_key: { memberId, key } },
+        create: { memberId, key },
+        update: {},
+      });
+    }
     const { items } = await loadSyncFeed(memberId);
     return NextResponse.json({ items });
   } catch (err) {

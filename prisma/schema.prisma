@@ -203,6 +203,19 @@ model ProactiveDelivery {
   @@unique([memberId, key])
 }
 
+// A possible-staleness the reconciliation tier flagged: your active task may now
+// conflict with newer shared knowledge. Persisted so it lives in the feed until resolved.
+model ReconcileFlag {
+  id        String   @id @default(cuid())
+  memberId  String
+  taskName  String
+  text      String // the AI's phrasing of the conflict
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([memberId, taskName])
+}
+
 // Per-member private AI workspace conversation.
 model Message {
   id        String   @id @default(cuid())

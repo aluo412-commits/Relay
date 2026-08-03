@@ -250,6 +250,19 @@ export default function RelayApp() {
         })
         .catch(() => {});
 
+      // Reconciliation (AI-judged): flag any active task that recent team notes may
+      // have made stale, and fold the result into the feed.
+      fetch("/api/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: id }),
+      })
+        .then((r) => r.json())
+        .then((rc) => {
+          if (rc && Array.isArray(rc.items)) setSyncItems(rc.items);
+        })
+        .catch(() => {});
+
       // Briefing bumps lastSeenAt — run it last so the feed above saw the old value.
       fetch(`/api/briefing?memberId=${id}`)
         .then((r) => r.json())
