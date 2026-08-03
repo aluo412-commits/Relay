@@ -72,7 +72,7 @@ export interface ProjectState {
 
 export type BoardAction =
   | { type: "complete_task"; task: string; note?: string }
-  | { type: "update_task"; task: string; status: TaskStatus; note?: string }
+  | { type: "update_task"; task: string; status: TaskStatus; note?: string; due?: string }
   | {
       type: "create_task";
       name: string;
@@ -204,6 +204,26 @@ export interface NotificationDTO {
   boardName: string | null;
   taskName: string | null;
   read: boolean;
+  createdAt: string;
+}
+
+// ---- Active-Sync engine ----
+
+// What a change means to a given person.
+export type SyncVerdict = "unblocked" | "blocked" | "deadline" | "assigned" | "fyi" | "reconcile";
+// How loudly it should be delivered.
+export type SyncIntensity = "ambient" | "catchup" | "proactive";
+
+// One ranked item in a person's sync feed.
+export interface SyncItem {
+  key: string; // stable dedup key (verdict + subject)
+  verdict: SyncVerdict;
+  intensity: SyncIntensity;
+  text: string;
+  actionable: boolean;
+  taskName: string | null;
+  boardId: string | null;
+  fromName: string | null;
   createdAt: string;
 }
 

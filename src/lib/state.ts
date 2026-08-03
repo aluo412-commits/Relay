@@ -318,7 +318,11 @@ export async function applyActions(
         if (t)
           await prisma.task.update({
             where: { id: t.id },
-            data: { status: normalizeStatus(action.status), note: action.note ?? t.note },
+            data: {
+              status: normalizeStatus(action.status),
+              note: action.note ?? t.note,
+              ...(action.due !== undefined ? { due: action.due || null } : {}),
+            },
           });
         break;
       }

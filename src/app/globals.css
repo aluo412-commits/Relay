@@ -369,6 +369,17 @@ button { font-family: inherit; }
 .prio-medium { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .prio-low { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
 
+/* Due-date chips */
+.due-chip { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+.due-overdue { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+.due-today { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.due-soon { color: var(--muted); background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.due-none { color: var(--faint); background: color-mix(in srgb, var(--faint) 10%, transparent); }
+.checkin-due { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.checkin-due > span { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 650; }
+.checkin-due-row { display: flex; gap: 8px; align-items: center; }
+.checkin-due-row .d-input { max-width: 190px; }
+
 /* importance badge */
 .imp-badge { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
 .imp-badge.imp-important { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }

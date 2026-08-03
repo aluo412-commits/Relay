@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { dueState, formatDue, compareDue } from "@/lib/dates";
 import type {
   ProjectState,
   UpdateDraft,
@@ -602,15 +603,16 @@ export default function RelayApp() {
 
   // Progress check-in from a task's detail page.
   // Your own task → applies directly. Someone else's → files a pending request.
-  async function submitProgress(task: TaskDTO, status: TaskStatus, note: string) {
+  async function submitProgress(task: TaskDTO, status: TaskStatus, note: string, due?: string | null) {
     const isMine = !task.owner || task.owner.name === currentMember?.name;
+    const dueChanged = due !== undefined && (due || null) !== (task.due || null);
     try {
       if (isMine) {
         const res = await fetch("/api/apply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            actions: [{ type: "update_task", task: task.name, status, note: note || undefined }],
+            actions: [{ type: "update_task", task: task.name, status, note: note || undefined, ...(dueChanged ? { due: due || "" } : {}) }],
             boardId: task.boardId,
           }),
         });
@@ -750,7 +752,9 @@ export default function RelayApp() {
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? boards[0];
   const allTasks = boards.flatMap((b) => b.tasks);
   // The current member's unfinished tasks across ALL boards (labeled by board).
-  const myTasks = allTasks.filter((t) => t.owner?.name === currentMember.name && t.status !== "done");
+  const myTasks = allTasks
+    .filter((t) => t.owner?.name === currentMember.name && t.status !== "done")
+    .sort((a, b) => compareDue(a.due, b.due));
   // "On your plate" summary for the briefing.
   const myOpenTasks = myTasks.map((t) => ({ name: t.name, status: t.status, note: t.note }));
 
@@ -1595,6 +1599,7 @@ function TaskCard({
           <span className="owner">unassigned</span>
         )}
         {task.priority ? <PriorityChip level={task.priority} /> : null}
+        {task.due ? <DueChip due={task.due} /> : null}
         {task.acceptanceCriteria.length ? (
           <span className="ac-count">✓ {task.acceptanceCriteria.length}</span>
         ) : null}
@@ -1785,6 +1790,14 @@ function TasksEditor({
                 <option value="done">Done</option>
               </select>
             </Field>
+            <Field label="Due (optional)">
+              <input
+                type="date"
+                className="d-input"
+                value={t.due ?? ""}
+                onChange={(e) => setTask(i, { due: e.target.value || undefined })}
+              />
+            </Field>
           </div>
           <Field label="Objective">
             <textarea
@@ -1874,6 +1887,13 @@ function PriorityChip({ level }: { level: Priority }) {
   return <span className={`prio prio-${level}`}>{level}</span>;
 }
 
+// Due-date chip: flags overdue/today/soon; a far-off date reads neutral.
+function DueChip({ due }: { due: string }) {
+  const s = dueState(due);
+  const label = s === "overdue" ? "overdue" : s === "today" ? "today" : formatDue(due);
+  return <span className={`due-chip due-${s}`}>◷ {label}</span>;
+}
+
 function DocSection({ label, body }: { label: string; body: string }) {
   return (
     <div className="doc-sec">
@@ -1895,7 +1915,7 @@ function DetailModal({
   detail: Detail;
   currentMemberName: string;
   onClose: () => void;
-  onSubmitProgress: (task: TaskDTO, status: TaskStatus, note: string) => void;
+  onSubmitProgress: (task: TaskDTO, status: TaskStatus, note: string, due?: string | null) => void;
   onReview: (payload: {
     taskName: string;
     objective?: string | null;
@@ -1939,7 +1959,7 @@ function TaskDetail({
 }: {
   t: TaskDTO;
   currentMemberName: string;
-  onSubmitProgress: (task: TaskDTO, status: TaskStatus, note: string) => void;
+  onSubmitProgress: (task: TaskDTO, status: TaskStatus, note: string, due?: string | null) => void;
   onReview: (payload: {
     taskName: string;
     objective?: string | null;
@@ -1951,6 +1971,7 @@ function TaskDetail({
 }) {
   const [status, setStatus] = useState<TaskStatus>(t.status);
   const [note, setNote] = useState("");
+  const [due, setDue] = useState<string>(t.due ?? "");
   const [checks, setChecks] = useState<Set<number>>(new Set());
   const [reviewing, setReviewing] = useState(false);
   const [comment, setComment] = useState<string | null>(null);
@@ -1999,7 +2020,7 @@ function TaskDetail({
           <span className="owner">unassigned</span>
         )}
         {t.priority ? <PriorityChip level={t.priority} /> : null}
-        {t.due ? <span className="doc-due">due {t.due}</span> : null}
+        {t.due ? <DueChip due={t.due} /> : null}
       </div>
       {t.objective ? <DocSection label="Objective" body={t.objective} /> : null}
       {t.acceptanceCriteria.length ? (
@@ -2064,6 +2085,19 @@ function TaskDetail({
           onChange={(e) => setNote(e.target.value)}
           rows={2}
         />
+        {isMine ? (
+          <label className="checkin-due">
+            <span>Due date (optional)</span>
+            <div className="checkin-due-row">
+              <input type="date" className="d-input" value={due} onChange={(e) => setDue(e.target.value)} />
+              {due ? (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDue("")}>
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </label>
+        ) : null}
         {comment ? <div className="ai-review">✨ {comment}</div> : null}
         <div className="checkin-actions">
           <button className="btn btn-ghost" type="button" onClick={askAI} disabled={reviewing}>
@@ -2072,8 +2106,8 @@ function TaskDetail({
           <button
             className="btn btn-primary"
             type="button"
-            onClick={() => onSubmitProgress(t, status, note)}
-            disabled={status === t.status && !note.trim()}
+            onClick={() => onSubmitProgress(t, status, note, isMine ? due : undefined)}
+            disabled={status === t.status && !note.trim() && (due || "") === (t.due || "")}
           >
             {isMine ? "Submit progress" : "Request change"}
           </button>
