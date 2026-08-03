@@ -1,8 +1,10 @@
 ---
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: requirements-only
+artifact_readiness: implementation-ready
+execution: code
 product_contract_source: ce-brainstorm
 date: 2026-08-02
+planned: 2026-08-03
 ---
 
 # Active-Sync AI (+ Optional Task Due Dates) - Plan
@@ -105,3 +107,153 @@ Relay's thesis is "chat is for people, work runs on Relay." This makes the *"wor
 2. **Ambient "In sync" panel** built from the existing briefing computation, made continuous and relevance-ranked.
 3. **Proactive speak-up** on urgent+actionable items, with noise control.
 4. **Reconciliation tier** (stale/conflict detection) — the differentiator, built last on top of the engine.
+
+---
+
+## Planning Contract
+
+**Product Contract preservation:** unchanged (WHAT above is untouched; this section adds HOW).
+
+**Grounding:** planned against the live codebase (edited throughout this session). Key existing seams this builds on:
+- `src/app/api/briefing/route.ts` — already computes "what's new since `lastSeenAt`" (your open tasks, others' updates, new knowledge, pending change requests) and stamps `lastSeenAt`. This is the seed of the relevance feed.
+- `src/lib/state.ts` `applyActions()` — already fires `Notification` rows on assignment and important shares; the place to also emit sync signals.
+- `Notification` model (`prisma/schema.prisma`) — has `kind`, `importance`, `read`, `fromName`, `boardName`, `taskName`. Reused as the substrate for delivered/dedup state (add kinds) rather than a new table.
+- `Task.due String?` — already exists; today it's free-text and unused. Becomes a structured optional ISO date.
+- `src/lib/minimax.ts` `completeJson<T>()` — used for the AI-judged reconciliation tier only.
+- `src/components/RelayApp.tsx` — `BriefingCard`, the notifications bell/panel, `TasksEditor`/`TaskDetail`, the Kanban, and the new Workstream rail are the client seams.
+
+### Key Technical Decisions
+- **KTD1 — Due stays `Task.due String?`, stored as ISO `YYYY-MM-DD`.** No schema change for dates; keep it optional (unset is first-class). All soon/today/overdue logic lives in one shared helper. *(session-settled: user-directed — due dates optional, chosen over a required/defaulted date.)*
+- **KTD2 — The sync feed is computed, not a new heavy table.** `computeSyncFeed(memberId, now)` reads existing tasks/updates/knowledge/`lastSeenAt` and returns ranked items. Delivered/dismissed/dedup state rides on the existing `Notification` model with new `kind`s (`unblock`, `deadline`, `reconcile`), so we don't re-nag.
+- **KTD3 — Relevance is rule-based for cheap tiers, AI-judged only for reconciliation.** Unblock/deadline/assignment verdicts are deterministic; the reconciliation tier (stale-spec detection phrasing + fix) uses `completeJson`. Controls cost/latency.
+- **KTD4 — Ambient panel polls; no realtime transport.** Matches the non-goal. The panel refetches on activity and on a light interval.
+- **KTD5 — Proactive "speak-up" = an injected assistant `Message` in the member's active-stream chat + a `Notification`, gated by urgent AND actionable, rate-limited, and deduped against already-delivered notifications.**
+
+### High-Level Technical Design — one engine, graduated delivery
+
+```mermaid
+flowchart TD
+  E[Shared state changes<br/>log · task move · share · due nears] --> R{computeSyncFeed<br/>per person}
+  R -->|irrelevant| X[deliver nothing]
+  R -->|touches you| I[relevance verdict<br/>+ intensity score<br/>importance × actionability × presence]
+  I -->|low| A[Ambient: In-sync panel]
+  I -->|returning| C[Catch-up on return]
+  I -->|urgent + actionable| P[Proactive: AI speaks up in chat]
+  I -->|stale / conflict| RC[Reconciliation: correct your picture<br/>completeJson]
+  A & C & P & RC --> N[(Notification substrate:<br/>delivered / read / dismissed — dedup)]
+```
+
+---
+
+## Implementation Units
+
+### Phase 1 — Due dates (independently shippable)
+
+### U1. Structured optional due date + picker
+- **Goal:** Turn `Task.due` from free text into a real, optional date set via a picker, with derived states.
+- **Requirements:** due-date subsystem (optional, structured, soon/today/overdue).
+- **Dependencies:** none.
+- **Files:** `src/lib/dates.ts` (new — `parseDue`, `formatDue`, `dueState(due, now): "none"|"soon"|"today"|"overdue"`), `src/lib/dates.test.ts` (new), `src/components/RelayApp.tsx` (`TasksEditor` ~line 1710: add `<input type="date">`; `TaskDetail` ~line 1924/1992: editable due), `src/lib/types.ts` (add `DueState`).
+- **Approach:** Store ISO `YYYY-MM-DD` in the existing `due String?`. "Soon" = within 3 days (a named constant). Never coerce empty → a date; blank stays blank.
+- **Patterns to follow:** existing `d-input` fields in `TasksEditor`; `parseList` tolerance style in `state.ts`.
+- **Test scenarios:**
+  - `dueState` returns `overdue` for yesterday, `today` for today, `soon` for +2 days, `none` for `null`/`""`.
+  - Boundary: exactly +3 days → `soon`; +4 → not soon.
+  - Setting then clearing the picker persists `null`, not `""`-as-date.
+
+### U2. Surface due on cards, "your open work", and sort
+- **Goal:** Show due state consistently; sort open work by urgency; overdue reads as a warning, no-date reads neutral.
+- **Requirements:** consistent surfacing; sorting by due.
+- **Dependencies:** U1.
+- **Files:** `src/components/RelayApp.tsx` (`TaskCard` due chip; `myTasks` sort), `src/app/globals.css` (`.due-chip` + `.overdue/.today/.soon`).
+- **Approach:** Chip uses `dueState`; overdue uses `--bad`, today `--warn`, soon `--muted`, none omitted. Sort: overdue → today → soon → dated → undated.
+- **Test scenarios:** `Test expectation: none` (presentational) — but if the sort comparator is extracted to `dates.ts`, unit-test the ordering above.
+
+### U3. Due-driven sync signals
+- **Goal:** Approaching/overdue on your task, and a teammate changing your task's due, become sync inputs.
+- **Requirements:** due dates feed the sync engine.
+- **Dependencies:** U1; feeds U4.
+- **Files:** `src/lib/sync.ts` (new — `dueSignals(memberId, now)`), `src/lib/sync.test.ts` (new).
+- **Approach:** Query the member's not-done tasks with a due; emit a signal for overdue/today/soon. Deadline-change detection deferred to U4's event pass.
+- **Test scenarios:** overdue own task → one `deadline` signal; no-due task → none; someone else's overdue task → none for this member.
+
+### Phase 2 — Ambient sync feed
+
+### U4. Relevance engine (`computeSyncFeed`)
+- **Goal:** One function that turns shared state into a per-person ranked feed with verdict + intensity.
+- **Requirements:** per-person relevance; intensities; willing to return empty.
+- **Dependencies:** U3.
+- **Files:** `src/lib/sync.ts`, `src/lib/sync.test.ts`, `src/lib/types.ts` (`SyncItem`, `SyncVerdict`, `SyncIntensity`).
+- **Approach:** Reuse the briefing queries (`src/app/api/briefing/route.ts`). Verdicts (rule-based): `unblocked` (a dependency task went done), `blocked`, `deadline` (from U3), `assigned`, `fyi` (others' updates/shares touching your stream), else excluded. Intensity = importance × actionability × presence (`lastSeenAt`). Dedup against delivered `Notification` rows.
+- **Patterns to follow:** the `Promise.all` multi-query shape in the briefing route; `normalizeStatus`/`parseList` tolerance.
+- **Test scenarios:**
+  - Sam completes a task Alex's task depends on → Alex gets one `unblocked` item; unrelated Jordan gets none.
+  - An FYI share on Alex's stream → `fyi` at ambient intensity.
+  - Irrelevant change → feed excludes it (empty allowed).
+  - An item already delivered (notification exists) is not re-emitted.
+
+### U5. `/api/sync` route
+- **Goal:** Serve the feed; accept act/dismiss.
+- **Dependencies:** U4.
+- **Files:** `src/app/api/sync/route.ts` (new — GET `?memberId&boardId`; POST `{ itemId, action: "dismiss"|"act" }`).
+- **Approach:** Mirror `src/app/api/notifications/route.ts` shape. Dismiss marks the backing notification read/dismissed.
+- **Test scenarios:** GET returns ranked items; POST dismiss hides it on next GET; unknown member → empty, 200.
+
+### U6. "In sync" ambient panel (client)
+- **Goal:** An always-current surface showing ranked items, act-on-it inline.
+- **Dependencies:** U5.
+- **Files:** `src/components/RelayApp.tsx` (`SyncPanel`), `src/app/globals.css`.
+- **Approach:** Lives at the top of the active stream (above chat) or a rail region; polls `/api/sync` on load, on activity, and on a light interval. Each item: verdict icon, text, act button (start/open/reply/dismiss). Empty state is calm, not a zero-badge.
+- **Test scenarios:** `Test expectation: none` (UI) — verified in the E2E pass.
+
+### Phase 3 — Return catch-up + proactive
+
+### U7. Return catch-up
+- **Goal:** On return after time away, a guided, act-on-it recap fed by the same engine.
+- **Dependencies:** U4.
+- **Files:** `src/components/RelayApp.tsx` (`BriefingCard` → catch-up), `src/app/api/briefing/route.ts` (delegate to `computeSyncFeed`).
+- **Approach:** Replace the ad-hoc briefing lists with the ranked feed filtered to "since `lastSeenAt`"; keep the `lastSeenAt` stamp.
+- **Test scenarios:** after a gap with 3 relevant changes → 3 catch-up items; acting on one clears it from the feed.
+
+### U8. Proactive speak-up
+- **Goal:** For urgent+actionable items, Relay initiates in chat, rate-limited and deduped.
+- **Dependencies:** U4, U6.
+- **Files:** `src/lib/sync.ts` (`proactiveFor(memberId)`), chat/state load path (`src/app/api/state/route.ts` or `/api/sync`), `src/components/RelayApp.tsx` (render injected assistant message).
+- **Approach:** On load / after an event, pick the top urgent+actionable undelivered item; inject an assistant `Message` in the active stream + a `Notification`; mark delivered so it never repeats. Cap N proactive/session.
+- **Test scenarios:** unblock event → one proactive message with a start action; a second load does not repeat it; a non-actionable change never speaks up.
+
+### U9. Noise control
+- **Goal:** Silence when empty, no re-nag, per-stream mute.
+- **Requirements:** noise control (hard requirement).
+- **Dependencies:** U4–U8.
+- **Files:** `src/lib/sync.ts` (dedup + mute filter), `src/components/RelayApp.tsx` (mute toggle on a stream), a client pref (localStorage) or `Member`-scoped mute set.
+- **Approach:** Delivered items never re-surface (notification dedup); an item acted on ambiently never also interrupts; muted streams drop proactive to ambient.
+- **Test scenarios:** muted stream → no proactive, still visible in panel; item acted-on in panel → no later chat interruption.
+
+### Phase 4 — Reconciliation (the differentiator)
+
+### U10. Reconciliation tier
+- **Goal:** Detect when your in-progress task is now inconsistent with newer shared info and offer a one-click fix.
+- **Requirements:** reconciliation ("you're on the old spec").
+- **Dependencies:** U4.
+- **Files:** `src/lib/sync.ts` (`reconcileFor`), `src/lib/prompts.ts` (a reconcile prompt), `src/lib/minimax.ts` (`completeJson`), `src/components/RelayApp.tsx` (reconcile item with a "fix" button → `/api/publish` or `/api/apply`).
+- **Approach:** Flag a member's `inprogress` task whose acceptance criteria/objective/dependency/due changed after they started it (compare `updatedAt` vs. the member's engagement). `completeJson` phrases the correction and proposes an `update_task` action; the fix goes through the existing execute/publish path.
+- **Test scenarios:**
+  - Jordan edits Alex's in-progress task's criteria → Alex gets a `reconcile` item with a fix; applying it updates the task.
+  - No change since engagement → no reconcile item (no false positive).
+  - `completeJson` returns null (AI down) → degrade to a plain "this task changed" item, no crash.
+
+---
+
+## Verification Contract
+- `npx tsc --noEmit` clean; page HTTP 200; `/api/ai-health` ok.
+- Unit: `dates.test.ts` (state boundaries) and `sync.test.ts` (verdicts, dedup, empty-allowed, reconcile true/false-positive) pass.
+- E2E (drive via API + UI): set a due date → overdue chip on the card and a `deadline` item in the panel; Sam completes a dependency → Alex sees an `unblocked` ambient item AND one proactive chat message (not repeated on reload); Jordan edits Alex's in-progress criteria → a reconcile item whose fix updates the task; an unrelated member sees nothing; mute a stream → proactive suppressed.
+- Noise: with no relevant changes, the panel is calmly empty and no proactive fires.
+
+## Definition of Done
+- Due dates are optional, structured, and show soon/today/overdue consistently; no-date is neutral.
+- One relevance engine produces a per-person feed at four intensities and is willing to stay silent.
+- Ambient panel is live; return catch-up is guided; proactive is gated, rate-limited, and deduped; reconciliation catches stale specs with a one-click fix.
+- All tiers run off real data via `/api/sync`; delivered/dismissed state prevents re-nagging.
+- `tsc` clean, page 200, no runtime errors on an empty workspace.
