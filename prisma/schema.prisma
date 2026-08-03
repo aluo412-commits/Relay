@@ -1,0 +1,184 @@
+// Relay — data model for the AI-first prototype.
+// One shared team + project. Each member has a private AI workspace (Message log);
+// the board (Task / Update / Knowledge) is shared "Project Memory".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// The team / workspace. Holds many Boards (Kanbans), shared team memory, and members.
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  deadline  String?
+  model     String   @default("claude-haiku-4-5") // selected model for the agent (OpenCode Zen id)
+  createdAt DateTime @default(now())
+
+  boards        Board[]
+  members       Member[]
+  tasks         Task[]
+  updates       Update[]
+  knowledge     Knowledge[]
+  messages      Message[]
+  logEntries    LogEntry[]
+  notifications Notification[]
+}
+
+// A single Kanban board within a team.
+// A Workstream: a Board elevated into a full context (its own chat thread, tasks,
+// artifacts, and log slice). Selecting one swaps the whole working context.
+model Board {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  deadline  String?
+  color     String? // accent for the workstream card
+  summary   String? // one-line "what this stream is about"
+  createdAt DateTime @default(now())
+
+  tasks     Task[]
+}
+
+model Member {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name       String
+  color      String
+  role       String?
+  lastSeenAt DateTime? // last time this member opened their workspace (for "what's new" briefings)
+
+  ownedTasks    Task[]         @relation("TaskOwner")
+  notifications Notification[] @relation("Notify")
+  logEntries    LogEntry[]
+  updates    Update[]
+  messages   Message[]
+}
+
+// A task, documented as a small spec (objective, acceptance criteria, priority…).
+model Task {
+  id                 String   @id @default(cuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  boardId            String
+  board              Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name               String
+  // status: "new" | "inprogress" | "blocked" | "done"
+  status             String   @default("inprogress")
+  ownerId            String?
+  owner              Member?  @relation("TaskOwner", fields: [ownerId], references: [id])
+  note               String?
+  objective          String? // why it matters / what "done" delivers
+  acceptanceCriteria String? // JSON array of strings — the definition of done
+  dependencies       String? // what it's blocked by / needs first
+  priority           String? // "low" | "medium" | "high"
+  due                String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// A work record: an official, structured document posted to the project timeline.
+model Update {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    Member?  @relation(fields: [authorId], references: [id])
+  title     String
+  status    String
+  summary   String? // one-line headline
+  details   String? // the substantive body of the record
+  changes   String? // design / scope changes
+  impact    String? // downstream effects, who/what is affected
+  artifacts String? // JSON array of files / links
+  nextSteps String?
+  createdAt DateTime @default(now())
+}
+
+// A piece of shared knowledge the Connector surfaced.
+model Knowledge {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag        String
+  text       String
+  importance String? // "normal" | "important" | "critical" — AI-evaluated significance
+  createdAt  DateTime @default(now())
+}
+
+// A proposed change to a task owned by someone else — needs the owner's approval.
+model ChangeRequest {
+  id              String   @id @default(cuid())
+  projectId       String
+  taskId          String
+  taskName        String // denormalized for display
+  requestedById   String?
+  requestedByName String?
+  targetId        String? // the task owner who must approve
+  proposedStatus  String
+  note            String?
+  status          String   @default("pending") // "pending" | "approved" | "declined"
+  createdAt       DateTime @default(now())
+}
+
+// A timestamped entry in a member's activity log — the raw thing they recorded.
+// The primary capture surface; the agent absorbs it silently.
+model LogEntry {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  boardId   String?
+  text      String // the raw thing the user typed
+  synced    String? // short note of what auto-applied, e.g. "Claw mechanism → done"
+  createdAt DateTime @default(now())
+}
+
+// A "for you" delivery item — how captured information reaches the people who need it.
+model Notification {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   Member   @relation("Notify", fields: [recipientId], references: [id], onDelete: Cascade)
+  kind        String // "assignment" | "connector" | "share"
+  text        String
+  importance  String?
+  fromName    String?
+  boardName   String?
+  taskName    String?
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+// A full log of one agent turn (for debugging / inspectability). No relations, so it
+// survives dev reseeds.
+model AgentLog {
+  id          String   @id @default(cuid())
+  memberName  String?
+  boardName   String?
+  userMessage String
+  toolCalls   String // JSON: [{ name, arguments }]
+  reply       String
+  createdAt   DateTime @default(now())
+}
+
+// Per-member private AI workspace conversation.
+model Message {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  boardId   String? // which workstream this chat belongs to (null = legacy/global)
+  role      String // "user" | "assistant"
+  content   String
+  createdAt DateTime @default(now())
+}
