@@ -24,9 +24,9 @@ Set these in `.env` locally and in the Vercel dashboard for production:
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string (Neon **pooled** URL in production). |
 | `AUTH_SECRET` | Random ≥32-char string that signs session cookies. Generate: `openssl rand -base64 32`. |
-| `MINIMAX_API_KEY` | Your LLM provider key. |
-| `MINIMAX_BASE_URL` | OpenAI-compatible base URL (e.g. OpenCode Zen / MiniMax). |
-| `MINIMAX_MODEL` | Default model id. |
+| `OPENCODE_API_KEY` | Your LLM provider key. |
+| `LLM_BASE_URL` | OpenAI-compatible base URL (e.g. `https://opencode.ai/zen/go/v1`). |
+| `LLM_MODEL` | Default model id (e.g. `deepseek-v4-flash`). |
 
 ⚠️ Never commit `.env` (it's already in `.gitignore`). Rotate any key that leaks.
 
