@@ -152,6 +152,7 @@ export default function RelayApp() {
   const [memberId, setMemberId] = useState<string>("");
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [wsAction, setWsAction] = useState<null | "new" | "join">(null);
@@ -215,6 +216,7 @@ export default function RelayApp() {
   const refreshMe = useCallback(async (): Promise<Session | null> => {
     try {
       const d = await fetch("/api/auth/me").then((r) => r.json());
+      setGoogleEnabled(!!d.googleEnabled);
       if (!d.user) {
         setSession(null);
         setAuthLoading(false);
@@ -978,7 +980,7 @@ export default function RelayApp() {
     return <div className="loading-full">// connecting to Relay…</div>;
   }
   if (!session?.user) {
-    return <AuthScreen onAuthed={refreshMe} />;
+    return <AuthScreen onAuthed={refreshMe} googleEnabled={googleEnabled} />;
   }
   if (session.workspaces.length === 0) {
     return (
@@ -3039,13 +3041,42 @@ function BriefingCard({
 
 // ---- Auth & workspace onboarding ----
 
-function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
+function GoogleG() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 18 18" aria-hidden="true">
+      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z" />
+      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18Z" />
+      <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33Z" />
+      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58Z" />
+    </svg>
+  );
+}
+
+const AUTH_ERRORS: Record<string, string> = {
+  google_unconfigured: "Google sign-in isn't configured yet.",
+  google_denied: "Google sign-in was cancelled.",
+  google_state: "Google sign-in expired — please try again.",
+  google_email: "Your Google account has no verified email.",
+  google_failed: "Google sign-in failed — please try again.",
+};
+
+function AuthScreen({ onAuthed, googleEnabled }: { onAuthed: () => void; googleEnabled: boolean }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Surface an error handed back by the Google callback via ?authError=, then clean the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("authError");
+    if (code) {
+      setErr(AUTH_ERRORS[code] ?? "Sign-in failed — please try again.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -3077,6 +3108,15 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
         </div>
         <p className="auth-tag">Chat is for people. Work runs on Relay.</p>
         <h1 className="auth-title">{mode === "login" ? "Welcome back" : "Create your account"}</h1>
+        {googleEnabled ? (
+          <>
+            <a className="btn google-btn" href="/api/auth/google">
+              <GoogleG />
+              Continue with Google
+            </a>
+            <div className="auth-divider"><span>or</span></div>
+          </>
+        ) : null}
         <form onSubmit={submit} className="auth-form">
           {mode === "signup" ? (
             <label className="auth-field">

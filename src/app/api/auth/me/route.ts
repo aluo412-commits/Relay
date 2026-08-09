@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUserId, getActiveWorkspaceId } from "@/lib/auth";
+import { googleConfigured } from "@/lib/google";
 
 export const dynamic = "force-dynamic";
 
@@ -8,11 +9,12 @@ export const dynamic = "force-dynamic";
 // Returns { user: null } when signed out (the client then shows the auth screen).
 export async function GET() {
   try {
+    const googleEnabled = googleConfigured();
     const userId = await getSessionUserId();
-    if (!userId) return NextResponse.json({ user: null });
+    if (!userId) return NextResponse.json({ user: null, googleEnabled });
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return NextResponse.json({ user: null });
+    if (!user) return NextResponse.json({ user: null, googleEnabled });
 
     const members = await prisma.member.findMany({
       where: { userId },
@@ -37,6 +39,7 @@ export async function GET() {
       user: { id: user.id, name: user.name, email: user.email },
       workspaces,
       activeWorkspaceId,
+      googleEnabled,
     });
   } catch (err) {
     console.error("me error:", err);

@@ -24,6 +24,8 @@ Set these in `.env` locally and in the Vercel dashboard for production:
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string (Neon **pooled** URL in production). |
 | `AUTH_SECRET` | Random ≥32-char string that signs session cookies. Generate: `openssl rand -base64 32`. |
+| `GOOGLE_CLIENT_ID` | *(optional)* Google OAuth client id — enables "Continue with Google". |
+| `GOOGLE_CLIENT_SECRET` | *(optional)* Google OAuth client secret. |
 | `OPENCODE_API_KEY` | Your LLM provider key. |
 | `LLM_BASE_URL` | OpenAI-compatible base URL (e.g. `https://opencode.ai/zen/go/v1`). |
 | `LLM_MODEL` | Default model id (e.g. `deepseek-v4-flash`). |
@@ -88,6 +90,28 @@ That's it — visit your Vercel URL, sign up, create a workspace, and share the 
 code with teammates.
 
 ---
+
+## Google sign-in (optional)
+
+The "Continue with Google" button appears only when `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` are set. To enable it:
+
+1. Go to <https://console.cloud.google.com/apis/credentials> → **Create credentials →
+   OAuth client ID** → application type **Web application**.
+2. Under **Authorized redirect URIs**, add one per origin you use:
+   - `http://localhost:3000/api/auth/google/callback`
+   - `https://<your-vercel-domain>/api/auth/google/callback`
+3. (First time only) configure the **OAuth consent screen** — External, add your app
+   name + support email; add yourself as a test user while it's unpublished.
+4. Copy the **Client ID** and **Client secret** into `GOOGLE_CLIENT_ID` /
+   `GOOGLE_CLIENT_SECRET` (locally in `.env`, and in the Vercel dashboard).
+
+Notes:
+- The redirect URI is derived from the request origin, so the same code works on
+  localhost and production — just register both URIs above.
+- If someone signed up with email + password and later uses Google with the **same
+  email**, the accounts are linked automatically.
+- Google-only accounts have no password; the login form tells them to use Google.
 
 ## Inviting teammates
 

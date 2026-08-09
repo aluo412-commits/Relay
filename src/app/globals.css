@@ -805,3 +805,9 @@ button { font-family: inherit; }
 .user-menu-id { padding: 9px 10px 6px; }
 .user-menu-name { font-weight: 650; font-size: 0.9rem; }
 .user-menu-email { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Google sign-in button + divider */
+.google-btn { width: 100%; justify-content: center; gap: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); font-weight: 600; text-decoration: none; }
+.google-btn:hover { background: var(--surface-2); border-color: var(--faint); }
+.auth-divider { display: flex; align-items: center; gap: 12px; color: var(--faint); font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; margin: 15px 0; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
