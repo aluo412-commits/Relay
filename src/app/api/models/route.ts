@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server";
 import { listModels } from "@/lib/minimax";
-import { loadState } from "@/lib/state";
+import { getContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/models -> { models: string[], current: string }
-// The models the provider actually serves + the team's currently-selected one.
+// The models the provider serves + the active workspace's currently-selected one.
 export async function GET() {
   try {
-    const [models, state] = await Promise.all([
-      listModels(),
-      loadState().catch(() => null),
-    ]);
-    return NextResponse.json({ models, current: state?.project.model ?? "" });
+    const [models, ctx] = await Promise.all([listModels(), getContext().catch(() => null)]);
+    return NextResponse.json({ models, current: ctx?.project.model ?? "" });
   } catch (err) {
     return NextResponse.json({ models: [], current: "", error: (err as Error).message });
   }

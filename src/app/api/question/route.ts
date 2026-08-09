@@ -2,19 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { parseList } from "@/lib/state";
 import { createQuestion } from "@/lib/questions";
+import { getContext } from "@/lib/session";
 import type { BoardAction, QuestionDTO } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-async function ctx() {
-  const project = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!project) return null;
-  const members = await prisma.member.findMany({ where: { projectId: project.id } });
-  const boards = await prisma.board.findMany({ where: { projectId: project.id } });
-  const nameById = new Map(members.map((m) => [m.id, m.name]));
-  const boardById = new Map(boards.map((b) => [b.id, b.name]));
-  return { project, members, nameById, boardById };
-}
 
 type QRow = Awaited<ReturnType<typeof prisma.question.findMany>>[number];
 
@@ -22,8 +13,7 @@ function toDTO(q: QRow, memberId: string, nameById: Map<string, string>, boardBy
   const targets: string[] = parseList(q.targetIds);
   const isTarget = targets.includes(memberId);
   const mine = q.askerId === memberId;
-  const canAnswer =
-    q.status === "open" && !mine && (q.audience === "everyone" || isTarget);
+  const canAnswer = q.status === "open" && !mine && (q.audience === "everyone" || isTarget);
   return {
     id: q.id,
     boardId: q.boardId,
@@ -45,32 +35,40 @@ function toDTO(q: QRow, memberId: string, nameById: Map<string, string>, boardBy
   };
 }
 
-// GET /api/question?memberId=  -> questions this member is allowed to see.
-export async function GET(req: NextRequest) {
+// GET /api/question  -> questions in your workspace that you're allowed to see.
+export async function GET() {
   try {
-    const memberId = req.nextUrl.searchParams.get("memberId");
-    const c = await ctx();
-    if (!c || !memberId) return NextResponse.json({ questions: [] });
-    const rows = await prisma.question.findMany({ where: { projectId: c.project.id }, orderBy: { createdAt: "desc" } });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ questions: [] });
+    const memberId = ctx.member.id;
+    const [members, boards, rows] = await Promise.all([
+      prisma.member.findMany({ where: { projectId: ctx.project.id } }),
+      prisma.board.findMany({ where: { projectId: ctx.project.id } }),
+      prisma.question.findMany({ where: { projectId: ctx.project.id }, orderBy: { createdAt: "desc" } }),
+    ]);
+    const nameById = new Map(members.map((m) => [m.id, m.name]));
+    const boardById = new Map(boards.map((b) => [b.id, b.name]));
     // Visibility: team → everyone; private → asker + targets only.
     const visible = rows.filter((q) => {
       if (q.visibility === "team") return true;
       const targets: string[] = parseList(q.targetIds);
       return q.askerId === memberId || targets.includes(memberId) || q.audience === "everyone";
     });
-    return NextResponse.json({ questions: visible.map((q) => toDTO(q, memberId, c.nameById, c.boardById)) });
+    return NextResponse.json({ questions: visible.map((q) => toDTO(q, memberId, nameById, boardById)) });
   } catch (err) {
     console.error("question GET error:", err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
 
-// POST /api/question  { askerId, boardId?, text, audience, visibility, targetIds[],
-//                       answerType, branchYes?, branchNo? }
+// POST /api/question  { boardId?, text, audience, visibility, targetIds[], answerType, branchYes?, branchNo? }
 export async function POST(req: NextRequest) {
   try {
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const askerId = ctx.member.id;
+
     const body = (await req.json()) as {
-      askerId?: string;
       boardId?: string | null;
       text?: string;
       audience?: "specific" | "everyone";
@@ -80,22 +78,25 @@ export async function POST(req: NextRequest) {
       branchYes?: BoardAction[];
       branchNo?: BoardAction[];
     };
-    const c = await ctx();
-    if (!c) return NextResponse.json({ error: "No team found" }, { status: 404 });
-    if (!body.askerId || !body.text?.trim()) {
-      return NextResponse.json({ error: "askerId and text are required" }, { status: 400 });
+    if (!body.text?.trim()) {
+      return NextResponse.json({ error: "text is required" }, { status: 400 });
     }
+    const members = await prisma.member.findMany({ where: { projectId: ctx.project.id } });
+    const nameById = new Map(members.map((m) => [m.id, m.name]));
+    const boards = await prisma.board.findMany({ where: { projectId: ctx.project.id } });
+    const boardById = new Map(boards.map((b) => [b.id, b.name]));
+
     const audience = body.audience === "everyone" ? "everyone" : "specific";
     const visibility = body.visibility === "team" ? "team" : "private";
-    const targetIds = audience === "everyone" ? [] : (body.targetIds ?? []).filter((id) => c.nameById.has(id));
+    const targetIds = audience === "everyone" ? [] : (body.targetIds ?? []).filter((id) => nameById.has(id));
     if (audience === "specific" && targetIds.length === 0) {
       return NextResponse.json({ error: "Pick at least one person to ask" }, { status: 400 });
     }
     const answerType = body.answerType === "yesno" ? "yesno" : "open";
-    const asker = c.nameById.get(body.askerId) ?? "Someone";
+
     const q = await createQuestion({
-      projectId: c.project.id,
-      askerId: body.askerId,
+      projectId: ctx.project.id,
+      askerId,
       boardId: body.boardId ?? null,
       text: body.text,
       audience,
@@ -104,11 +105,11 @@ export async function POST(req: NextRequest) {
       answerType,
       branchYes: body.branchYes,
       branchNo: body.branchNo,
-      askerName: asker,
-      allMemberIds: c.members.map((m) => m.id),
+      askerName: ctx.member.name,
+      allMemberIds: members.map((m) => m.id),
     });
 
-    return NextResponse.json({ question: toDTO(q, body.askerId, c.nameById, c.boardById) });
+    return NextResponse.json({ question: toDTO(q, askerId, nameById, boardById) });
   } catch (err) {
     console.error("question POST error:", err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

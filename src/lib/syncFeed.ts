@@ -9,10 +9,10 @@ import { parseList } from "./state";
 import type { SyncItem } from "./types";
 
 export async function loadSyncFeed(memberId: string): Promise<{ memberName: string; items: SyncItem[] }> {
-  const project = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!project) return { memberName: "", items: [] };
   const member = await prisma.member.findUnique({ where: { id: memberId } });
   if (!member) return { memberName: "", items: [] };
+  const project = await prisma.project.findUnique({ where: { id: member.projectId } });
+  if (!project) return { memberName: "", items: [] };
 
   const [taskRows, updates, knowledge, dismissals, reconcileFlags, questionRows, allMembers] = await Promise.all([
     prisma.task.findMany({ where: { projectId: project.id }, include: { owner: true } }),
@@ -109,10 +109,10 @@ export async function loadSyncFeed(memberId: string): Promise<{ memberName: stri
  * Upserts persistent ReconcileFlag rows. Safe no-op if the AI is unavailable.
  */
 export async function runReconcile(memberId: string): Promise<void> {
-  const project = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!project) return;
   const member = await prisma.member.findUnique({ where: { id: memberId } });
   if (!member) return;
+  const project = await prisma.project.findUnique({ where: { id: member.projectId } });
+  if (!project) return;
 
   const tasks = await prisma.task.findMany({
     where: { projectId: project.id, ownerId: memberId, status: "inprogress" },

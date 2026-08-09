@@ -4,6 +4,7 @@ import { loadState, applyActions, executeAgentOutput } from "@/lib/state";
 import { buildLogPrompt } from "@/lib/prompts";
 import { runAgentTurn } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
+import { getContext } from "@/lib/session";
 import type { LogEntryDTO } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,13 +14,13 @@ function toDTO(e: { id: string; text: string; synced: string | null; createdAt: 
   return { id: e.id, memberName, text: e.text, synced: e.synced, createdAt: e.createdAt.toISOString() };
 }
 
-// GET /api/log  -> the whole TEAM's recent log entries (oldest first), attributed by author.
+// GET /api/log  -> the whole workspace's recent log entries (oldest first), attributed by author.
 export async function GET() {
   try {
-    const project = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
-    if (!project) return NextResponse.json({ entries: [] });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     const rows = await prisma.logEntry.findMany({
-      where: { projectId: project.id },
+      where: { projectId: ctx.project.id },
       include: { member: true },
       orderBy: { createdAt: "asc" },
       take: 100,
@@ -31,23 +32,22 @@ export async function GET() {
   }
 }
 
-// POST /api/log { memberId, boardId, text }
+// POST /api/log { boardId?, text }
 // Records the entry, silently auto-syncs clear status changes, and returns any
 // drafts (proposals) for documentation-worthy / structural things.
 export async function POST(req: NextRequest) {
   try {
-    const { memberId, boardId, text } = (await req.json()) as {
-      memberId?: string;
-      boardId?: string;
-      text?: string;
-    };
-    if (!memberId || !text?.trim()) {
-      return NextResponse.json({ error: "memberId and text are required" }, { status: 400 });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const memberId = ctx.member.id;
+
+    const { boardId, text } = (await req.json()) as { boardId?: string; text?: string };
+    if (!text?.trim()) {
+      return NextResponse.json({ error: "text is required" }, { status: 400 });
     }
 
-    const state = await loadState();
-    const member = state.members.find((m) => m.id === memberId);
-    if (!member) return NextResponse.json({ error: "Unknown member" }, { status: 404 });
+    const state = await loadState(ctx.project.id);
+    const member = ctx.member;
     const activeBoard = state.boards.find((b) => b.id === boardId) ?? state.boards[0];
 
     // Always record the raw entry first.
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const fresh = await loadState();
+    const fresh = await loadState(ctx.project.id);
     return NextResponse.json({
       entry: { ...toDTO(entry, member.name), synced: syncedSummary },
       artifacts,

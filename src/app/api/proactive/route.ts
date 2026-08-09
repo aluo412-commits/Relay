@@ -1,20 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadSyncFeed } from "@/lib/syncFeed";
 import { proactiveItems } from "@/lib/sync";
+import { getContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/proactive  { memberId }
+// POST /api/proactive
 // If there's an urgent + actionable item Relay hasn't spoken up about yet, inject
 // one assistant message into the chat and record it so it never repeats.
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
-    const { memberId } = (await req.json()) as { memberId?: string };
-    if (!memberId) return NextResponse.json({ message: null });
-
-    const project = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
-    if (!project) return NextResponse.json({ message: null });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ message: null });
+    const memberId = ctx.member.id;
+    const project = ctx.project;
 
     const { items } = await loadSyncFeed(memberId);
     const candidates = proactiveItems(items);

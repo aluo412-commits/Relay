@@ -5,26 +5,26 @@ import { buildSystemPrompt } from "@/lib/prompts";
 import { runAgentTurn, selectRelevantCompactions } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
 import { createQuestion } from "@/lib/questions";
+import { getContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// POST /api/chat  { memberId, message }
-// Runs one Relay turn for the given member and persists the exchange.
+// POST /api/chat  { message, boardId? }
+// Runs one Relay turn for the signed-in member and persists the exchange.
 export async function POST(req: NextRequest) {
   try {
-    const { memberId, message, boardId } = (await req.json()) as {
-      memberId?: string;
-      message?: string;
-      boardId?: string;
-    };
-    if (!memberId || !message?.trim()) {
-      return NextResponse.json({ error: "memberId and message are required" }, { status: 400 });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const memberId = ctx.member.id;
+
+    const { message, boardId } = (await req.json()) as { message?: string; boardId?: string };
+    if (!message?.trim()) {
+      return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const state = await loadState();
-    const member = state.members.find((m) => m.id === memberId);
-    if (!member) return NextResponse.json({ error: "Unknown member" }, { status: 404 });
+    const state = await loadState(ctx.project.id);
+    const member = ctx.member;
 
     const chatBoardId = (state.boards.find((b) => b.id === boardId) ?? state.boards[0])?.id ?? null;
 

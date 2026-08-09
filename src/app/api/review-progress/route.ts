@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { completeJson } from "@/lib/minimax";
-import { loadState } from "@/lib/state";
+import { getContext } from "@/lib/session";
 import type { ProgressReview, TaskStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,9 @@ export const maxDuration = 60;
 // The AI reviews & polishes a progress check-in on a task spec.
 export async function POST(req: NextRequest) {
   try {
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
     const { taskName, objective, acceptanceCriteria, doneCriteria, currentStatus, draftNote } =
       (await req.json()) as {
         taskName: string;
@@ -35,8 +38,7 @@ MARKED DONE: ${doneCriteria?.length ? doneCriteria.join(" | ") : "(none)"}
 CURRENT STATUS: ${currentStatus || "unknown"}
 DRAFT PROGRESS NOTE: ${draftNote || "(empty)"}`;
 
-    const model = await loadState().then((s) => s.project.model).catch(() => undefined);
-    const review = await completeJson<ProgressReview>(system, user, model);
+    const review = await completeJson<ProgressReview>(system, user, ctx.project.model);
     if (!review || !review.reviewedNote) {
       return NextResponse.json({ error: "Couldn't review that — try again." }, { status: 502 });
     }

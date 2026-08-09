@@ -7,17 +7,30 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// A person's login. Global identity, independent of any workspace. A User has one
+// Member row per workspace they belong to.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  members Member[]
 }
 
 // The team / workspace. Holds many Boards (Kanbans), shared team memory, and members.
 model Project {
-  id        String   @id @default(cuid())
-  name      String
-  deadline  String?
-  model     String   @default("claude-haiku-4-5") // selected model for the agent (OpenCode Zen id)
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  name       String
+  deadline   String?
+  model      String   @default("claude-haiku-4-5") // selected model for the agent (OpenCode Zen id)
+  inviteCode String   @unique // teammates join this workspace with this code
+  createdAt  DateTime @default(now())
 
   boards        Board[]
   members       Member[]
@@ -49,9 +62,12 @@ model Member {
   id        String  @id @default(cuid())
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   name       String
   color      String
   role       String?
+  admin      Boolean   @default(false) // workspace admin (creator, or promoted) — can change settings
   lastSeenAt DateTime? // last time this member opened their workspace (for "what's new" briefings)
 
   ownedTasks    Task[]         @relation("TaskOwner")
@@ -59,6 +75,8 @@ model Member {
   logEntries    LogEntry[]
   updates    Update[]
   messages   Message[]
+
+  @@unique([projectId, userId]) // one membership per user per workspace
 }
 
 // A task, documented as a small spec (objective, acceptance criteria, priority…).

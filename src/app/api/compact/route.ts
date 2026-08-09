@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { loadState } from "@/lib/state";
 import { summarizeForCompaction } from "@/lib/minimax";
+import { getContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -15,12 +15,15 @@ const toDTO = (e: { id: string; heading: string; summary: string; content: strin
   createdAt: e.createdAt.toISOString(),
 });
 
-// GET /api/compact?memberId=  -> this member's compacted-context entries (newest first).
-export async function GET(req: NextRequest) {
+// GET /api/compact  -> your compacted-context entries (newest first).
+export async function GET() {
   try {
-    const memberId = req.nextUrl.searchParams.get("memberId");
-    if (!memberId) return NextResponse.json({ entries: [] });
-    const rows = await prisma.compactEntry.findMany({ where: { memberId }, orderBy: { createdAt: "desc" } });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ entries: [] });
+    const rows = await prisma.compactEntry.findMany({
+      where: { memberId: ctx.member.id },
+      orderBy: { createdAt: "desc" },
+    });
     return NextResponse.json({ entries: rows.map(toDTO) });
   } catch (err) {
     console.error("compact GET error:", err);
@@ -28,20 +31,18 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/compact { memberId }
-// Fold the member's current live conversation into one summarized entry, then clear
-// the live thread. The full transcript is preserved behind the entry.
-export async function POST(req: NextRequest) {
+// POST /api/compact
+// Fold your current live conversation into one summarized entry, then clear the live
+// thread. The full transcript is preserved behind the entry.
+export async function POST() {
   try {
-    const { memberId } = (await req.json()) as { memberId?: string };
-    if (!memberId) return NextResponse.json({ error: "memberId is required" }, { status: 400 });
-
-    const state = await loadState();
-    const member = state.members.find((m) => m.id === memberId);
-    if (!member) return NextResponse.json({ error: "Unknown member" }, { status: 404 });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const memberId = ctx.member.id;
+    const projectId = ctx.project.id;
 
     const msgs = await prisma.message.findMany({
-      where: { projectId: state.project.id, memberId },
+      where: { projectId, memberId },
       orderBy: { createdAt: "asc" },
       select: { role: true, content: true },
     });
@@ -50,16 +51,16 @@ export async function POST(req: NextRequest) {
     }
 
     const transcript = msgs
-      .map((m) => `${m.role === "user" ? member.name : "Relay"}: ${m.content}`)
+      .map((m) => `${m.role === "user" ? ctx.member.name : "Relay"}: ${m.content}`)
       .join("\n\n");
-    const { heading, summary } = await summarizeForCompaction(transcript, state.project.model);
+    const { heading, summary } = await summarizeForCompaction(transcript, ctx.project.model);
 
     const entry = await prisma.compactEntry.create({
-      data: { projectId: state.project.id, memberId, heading, summary, content: transcript },
+      data: { projectId, memberId, heading, summary, content: transcript },
     });
 
     // Clear the live thread — it now lives behind the compact entry.
-    await prisma.message.deleteMany({ where: { projectId: state.project.id, memberId } });
+    await prisma.message.deleteMany({ where: { projectId, memberId } });
 
     return NextResponse.json({ entry: toDTO(entry) });
   } catch (err) {
@@ -68,12 +69,14 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/compact?id=  -> forget a compacted entry.
+// DELETE /api/compact?id=  -> forget a compacted entry (yours only).
 export async function DELETE(req: NextRequest) {
   try {
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
-    await prisma.compactEntry.delete({ where: { id } });
+    await prisma.compactEntry.deleteMany({ where: { id, memberId: ctx.member.id } });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("compact DELETE error:", err);

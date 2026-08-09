@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getContext } from "@/lib/session";
 import type { NotificationDTO } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/notifications?memberId=  -> that member's notifications (recent) + unread count.
-export async function GET(req: NextRequest) {
+// GET /api/notifications  -> your notifications (recent) + unread count.
+export async function GET() {
   try {
-    const memberId = req.nextUrl.searchParams.get("memberId");
-    if (!memberId) return NextResponse.json({ notifications: [], unread: 0 });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ notifications: [], unread: 0 });
     const rows = await prisma.notification.findMany({
-      where: { recipientId: memberId },
+      where: { recipientId: ctx.member.id },
       orderBy: { createdAt: "desc" },
       take: 40,
     });
@@ -33,18 +34,19 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/notifications { memberId, ids?, all? } -> mark read.
+// POST /api/notifications { ids?, all? } -> mark read (scoped to you).
 export async function POST(req: NextRequest) {
   try {
-    const { memberId, ids, all } = (await req.json()) as {
-      memberId?: string;
-      ids?: string[];
-      all?: boolean;
-    };
-    if (all && memberId) {
-      await prisma.notification.updateMany({ where: { recipientId: memberId }, data: { read: true } });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const { ids, all } = (await req.json()) as { ids?: string[]; all?: boolean };
+    if (all) {
+      await prisma.notification.updateMany({ where: { recipientId: ctx.member.id }, data: { read: true } });
     } else if (ids?.length) {
-      await prisma.notification.updateMany({ where: { id: { in: ids } }, data: { read: true } });
+      await prisma.notification.updateMany({
+        where: { id: { in: ids }, recipientId: ctx.member.id },
+        data: { read: true },
+      });
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

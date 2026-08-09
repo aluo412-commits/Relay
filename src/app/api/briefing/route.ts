@@ -1,23 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getContext } from "@/lib/session";
 import type { Briefing, TaskStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const STATUS_RANK: Record<string, number> = { blocked: 0, inprogress: 1, new: 2, done: 3 };
 
-// GET /api/briefing?memberId=  -> what this member still owes + what changed since they last looked.
+// GET /api/briefing  -> what you still owe + what changed since you last looked.
 // Also stamps lastSeenAt so the next visit only shows genuinely new activity.
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const memberId = req.nextUrl.searchParams.get("memberId");
-    if (!memberId) return NextResponse.json({ error: "memberId required" }, { status: 400 });
+    const ctx = await getContext();
+    if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-    const member = await prisma.member.findUnique({ where: { id: memberId } });
-    if (!member) return NextResponse.json({ error: "Unknown member" }, { status: 404 });
-
-    const projectId = member.projectId;
-    const since = member.lastSeenAt ?? new Date(0);
+    const memberId = ctx.member.id;
+    const projectId = ctx.project.id;
+    const since = ctx.member.lastSeenAt ?? new Date(0);
 
     const [ownTasks, updates, knowledge, requests] = await Promise.all([
       prisma.task.findMany({

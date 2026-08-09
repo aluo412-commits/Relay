@@ -97,6 +97,11 @@ type ArtifactDTO = { title: string; filename: string; markdown: string; kind: "d
 // summaries and pulls back only the ones relevant to what's being discussed now.
 type CompactionDTO = { id: string; heading: string; summary: string; content: string; createdAt: string };
 
+// The signed-in user + the workspaces they belong to. Identity comes from the server
+// (session cookie); the "acting as" demo switcher is gone — you are your account.
+type Workspace = { id: string; name: string; memberId: string; role: string | null; admin: boolean; inviteCode: string };
+type Session = { user: { id: string; name: string; email: string }; workspaces: Workspace[]; activeWorkspaceId: string | null };
+
 const KANBAN_COLS: { status: TaskStatus; label: string }[] = [
   { status: "new", label: "New" },
   { status: "inprogress", label: "In Progress" },
@@ -145,6 +150,11 @@ const DRAFT_KIND_LABEL: Record<string, string> = {
 export default function RelayApp() {
   const [state, setState] = useState<ProjectState | null>(null);
   const [memberId, setMemberId] = useState<string>("");
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [wsMenuOpen, setWsMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [wsAction, setWsAction] = useState<null | "new" | "join">(null);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -186,6 +196,10 @@ export default function RelayApp() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const currentMember = state?.members.find((m) => m.id === memberId);
+  const activeWs =
+    session?.workspaces.find((w) => w.memberId === memberId) ??
+    session?.workspaces.find((w) => w.id === session?.activeWorkspaceId) ??
+    session?.workspaces[0];
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -197,20 +211,48 @@ export default function RelayApp() {
     window.setTimeout(() => setFlash([]), 1700);
   };
 
-  // Initial load.
-  useEffect(() => {
-    fetch("/api/state")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) return setError(d.error);
-        setState(d.state);
-        const first = d.state.members[0];
-        if (first) setMemberId(first.id);
-        const firstBoard = d.state.boards?.[0];
-        if (firstBoard) setActiveBoardId(firstBoard.id);
-      })
-      .catch((e) => setError(String(e)));
+  // Who am I? Loads the session + the workspaces I belong to. Drives the auth gate.
+  const refreshMe = useCallback(async (): Promise<Session | null> => {
+    try {
+      const d = await fetch("/api/auth/me").then((r) => r.json());
+      if (!d.user) {
+        setSession(null);
+        setAuthLoading(false);
+        return null;
+      }
+      const sess: Session = {
+        user: d.user,
+        workspaces: d.workspaces ?? [],
+        activeWorkspaceId: d.activeWorkspaceId ?? null,
+      };
+      setSession(sess);
+      setAuthLoading(false);
+      return sess;
+    } catch (e) {
+      setError(String(e));
+      setAuthLoading(false);
+      return null;
+    }
   }, []);
+
+  useEffect(() => {
+    refreshMe();
+  }, [refreshMe]);
+
+  // When the session (or active workspace) resolves, become the right member. Setting
+  // memberId triggers loadMember below, which loads that workspace's whole context.
+  useEffect(() => {
+    if (!session?.user) return;
+    const ws =
+      session.workspaces.find((w) => w.id === session.activeWorkspaceId) ?? session.workspaces[0];
+    if (ws) {
+      setMemberId(ws.memberId);
+    } else {
+      // No workspaces yet → onboarding screen; nothing to load.
+      setMemberId("");
+      setState(null);
+    }
+  }, [session]);
 
   // Load a member's workspace when identity changes: state, chat thread, briefing,
   // log, notifications, and compacted-context entries.
@@ -232,6 +274,9 @@ export default function RelayApp() {
       if (!s.error) {
         setState(s.state);
         setMessages(s.messages ?? []);
+        // Land on a valid board for this workspace (the active one may not exist here).
+        const bs = s.state?.boards ?? [];
+        setActiveBoardId((prev) => (bs.some((b: { id: string }) => b.id === prev) ? prev : bs[0]?.id ?? ""));
       }
       if (l && !l.error) setLogEntries(l.entries ?? []);
       if (n && !n.error) {
@@ -462,6 +507,64 @@ export default function RelayApp() {
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  // --- Accounts & workspaces ---
+
+  async function switchWorkspace(id: string) {
+    if (id === session?.activeWorkspaceId) {
+      setWsMenuOpen(false);
+      return;
+    }
+    setWsMenuOpen(false);
+    try {
+      const res = await fetch("/api/workspace/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId: id }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      await refreshMe();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function createWorkspace(name: string, role?: string) {
+    const res = await fetch("/api/workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't create workspace");
+    setWsAction(null);
+    await refreshMe();
+    showToast("Workspace created");
+  }
+
+  async function joinWorkspace(inviteCode: string, role?: string) {
+    const res = await fetch("/api/workspace/join", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inviteCode, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't join workspace");
+    setWsAction(null);
+    await refreshMe();
+    showToast("Joined workspace");
+  }
+
+  async function logout() {
+    setUserMenuOpen(false);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    setSession(null);
+    setState(null);
+    setMemberId("");
+    setMessages([]);
   }
 
   // Compact the current conversation into a summarized entry, then clear the live
@@ -871,6 +974,22 @@ export default function RelayApp() {
     } catch {}
   }
 
+  if (authLoading) {
+    return <div className="loading-full">// connecting to Relay…</div>;
+  }
+  if (!session?.user) {
+    return <AuthScreen onAuthed={refreshMe} />;
+  }
+  if (session.workspaces.length === 0) {
+    return (
+      <WorkspaceOnboarding
+        userName={session.user.name}
+        onCreate={createWorkspace}
+        onJoin={joinWorkspace}
+        onLogout={logout}
+      />
+    );
+  }
   if (error && !state) {
     return <div className="loading-full">⚠ {error}</div>;
   }
@@ -955,21 +1074,72 @@ export default function RelayApp() {
           {state.project.deadline ? ` · ${state.project.deadline}` : ""}
         </div>
         <div className="spacer" />
-        <div className="switcher">
-          <span className="lbl">acting as</span>
-          {state.members.map((m) => (
-            <button
-              key={m.id}
-              className={`who-btn${m.id === memberId ? " active" : ""}`}
-              onClick={() => setMemberId(m.id)}
-              title={m.role ?? m.name}
-            >
-              <span className="av" style={{ background: m.color }}>
-                {initials(m.name)}
-              </span>
-              {m.name}
-            </button>
-          ))}
+        <div className="ws-switch">
+          <button className="ws-pill" onClick={() => setWsMenuOpen((v) => !v)} title="Switch workspace">
+            <span className="ws-dot" style={{ background: activeWs?.inviteCode ? "var(--accent)" : "var(--accent)" }} />
+            <span className="ws-name">{activeWs?.name ?? state.project.name}</span>
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {wsMenuOpen ? (
+            <>
+              <div className="menu-scrim" onClick={() => setWsMenuOpen(false)} />
+              <div className="ws-menu" role="menu">
+                <div className="ws-menu-label">Workspaces</div>
+                {session?.workspaces.map((w) => (
+                  <button
+                    key={w.id}
+                    className={`ws-menu-item${w.memberId === memberId ? " active" : ""}`}
+                    onClick={() => switchWorkspace(w.id)}
+                    role="menuitem"
+                  >
+                    <span className="ws-menu-name">{w.name}</span>
+                    {w.admin ? <span className="ws-tag">admin</span> : null}
+                  </button>
+                ))}
+                <div className="ws-menu-sep" />
+                <button className="ws-menu-item" onClick={() => { setWsMenuOpen(false); setWsAction("new"); }} role="menuitem">
+                  ＋ New workspace
+                </button>
+                <button className="ws-menu-item" onClick={() => { setWsMenuOpen(false); setWsAction("join"); }} role="menuitem">
+                  Join with a code
+                </button>
+                {activeWs ? (
+                  <button
+                    className="ws-menu-item invite"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(activeWs.inviteCode).then(() => showToast("Invite code copied"));
+                    }}
+                    role="menuitem"
+                    title="Copy invite code"
+                  >
+                    Invite code: <b>{activeWs.inviteCode}</b> <span className="copy-hint">copy</span>
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </div>
+        <div className="user-switch">
+          <button className="user-pill" onClick={() => setUserMenuOpen((v) => !v)} title={session?.user.email}>
+            <span className="av" style={{ background: currentMember.color }}>
+              {initials(session?.user.name ?? currentMember.name)}
+            </span>
+          </button>
+          {userMenuOpen ? (
+            <>
+              <div className="menu-scrim" onClick={() => setUserMenuOpen(false)} />
+              <div className="user-menu" role="menu">
+                <div className="user-menu-id">
+                  <div className="user-menu-name">{session?.user.name}</div>
+                  <div className="user-menu-email">{session?.user.email}</div>
+                </div>
+                <div className="ws-menu-sep" />
+                <button className="ws-menu-item" onClick={logout} role="menuitem">Log out</button>
+              </div>
+            </>
+          ) : null}
         </div>
         {artifacts.length > 0 ? (
           <button
@@ -1639,6 +1809,23 @@ export default function RelayApp() {
         </div>
       )}
 
+      {wsAction && (
+        <div className="modal-overlay" onClick={() => setWsAction(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-head">
+              <span className="modal-kind">{wsAction === "join" ? "Join a workspace" : "New workspace"}</span>
+              <button className="modal-x" onClick={() => setWsAction(null)} aria-label="Close">✕</button>
+            </div>
+            <div className="modal-body">
+              <WorkspacePanel
+                initialMode={wsAction === "join" ? "join" : "create"}
+                onCreate={createWorkspace}
+                onJoin={joinWorkspace}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
@@ -2844,6 +3031,180 @@ function BriefingCard({
               {e.label}
             </button>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Auth & workspace onboarding ----
+
+function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      const url = mode === "login" ? "/api/auth/login" : "/api/auth/signup";
+      const body = mode === "login" ? { email, password } : { name, email, password };
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Something went wrong");
+      onAuthed();
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <BrandMark />
+          <span>Relay</span>
+        </div>
+        <p className="auth-tag">Chat is for people. Work runs on Relay.</p>
+        <h1 className="auth-title">{mode === "login" ? "Welcome back" : "Create your account"}</h1>
+        <form onSubmit={submit} className="auth-form">
+          {mode === "signup" ? (
+            <label className="auth-field">
+              <span>Name</span>
+              <input className="d-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoComplete="name" required />
+            </label>
+          ) : null}
+          <label className="auth-field">
+            <span>Email</span>
+            <input className="d-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@team.com" autoComplete="email" required />
+          </label>
+          <label className="auth-field">
+            <span>Password</span>
+            <input
+              className="d-input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={mode === "signup" ? "At least 8 characters" : "Your password"}
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              required
+            />
+          </label>
+          {err ? <div className="auth-err">{err}</div> : null}
+          <button className="btn btn-primary auth-submit" type="submit" disabled={busy}>
+            {busy ? "…" : mode === "login" ? "Log in" : "Sign up"}
+          </button>
+        </form>
+        <div className="auth-alt">
+          {mode === "login" ? (
+            <>New to Relay? <button onClick={() => { setMode("signup"); setErr(null); }}>Create an account</button></>
+          ) : (
+            <>Already have an account? <button onClick={() => { setMode("login"); setErr(null); }}>Log in</button></>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Shared create/join form, used on the onboarding screen and in the in-app modal.
+function WorkspacePanel({
+  initialMode,
+  onCreate,
+  onJoin,
+}: {
+  initialMode: "create" | "join";
+  onCreate: (name: string, role?: string) => Promise<void>;
+  onJoin: (code: string, role?: string) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"create" | "join">(initialMode);
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [role, setRole] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      if (mode === "create") await onCreate(name.trim(), role.trim() || undefined);
+      else await onJoin(code.trim(), role.trim() || undefined);
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ws-panel">
+      <div className="ws-tabs">
+        <button className={`ws-tab${mode === "create" ? " active" : ""}`} onClick={() => setMode("create")} type="button">
+          Create
+        </button>
+        <button className={`ws-tab${mode === "join" ? " active" : ""}`} onClick={() => setMode("join")} type="button">
+          Join with code
+        </button>
+      </div>
+      <form onSubmit={submit} className="auth-form">
+        {mode === "create" ? (
+          <label className="auth-field">
+            <span>Workspace name</span>
+            <input className="d-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Acme Product" required />
+          </label>
+        ) : (
+          <label className="auth-field">
+            <span>Invite code</span>
+            <input className="d-input mono" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="8-character code" required />
+          </label>
+        )}
+        <label className="auth-field">
+          <span>Your role <span className="opt">(optional)</span></span>
+          <input className="d-input" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Engineer, Design lead" />
+        </label>
+        {err ? <div className="auth-err">{err}</div> : null}
+        <button className="btn btn-primary auth-submit" type="submit" disabled={busy}>
+          {busy ? "…" : mode === "create" ? "Create workspace" : "Join workspace"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function WorkspaceOnboarding({
+  userName,
+  onCreate,
+  onJoin,
+  onLogout,
+}: {
+  userName: string;
+  onCreate: (name: string, role?: string) => Promise<void>;
+  onJoin: (code: string, role?: string) => Promise<void>;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <BrandMark />
+          <span>Relay</span>
+        </div>
+        <h1 className="auth-title">Welcome, {userName.split(" ")[0]}</h1>
+        <p className="auth-tag">Create a workspace for your team, or join one with an invite code.</p>
+        <WorkspacePanel initialMode="create" onCreate={onCreate} onJoin={onJoin} />
+        <div className="auth-alt">
+          <button onClick={onLogout}>Log out</button>
         </div>
       </div>
     </div>

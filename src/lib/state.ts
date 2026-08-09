@@ -204,10 +204,10 @@ export function parseList(raw: string | null | undefined): string[] {
   }
 }
 
-/** Load the single (first) project's full shared state. */
-export async function loadState(): Promise<ProjectState> {
-  const project = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!project) throw new Error("No project seeded. Run `npm run db:seed`.");
+/** Load a workspace's full shared state. Pass the workspace (project) id. */
+export async function loadState(projectId: string): Promise<ProjectState> {
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  if (!project) throw new Error("Workspace not found.");
 
   const [members, boards, tasks, updates, knowledge] = await Promise.all([
     prisma.member.findMany({ where: { projectId: project.id }, orderBy: { name: "asc" } }),
