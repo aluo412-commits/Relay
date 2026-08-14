@@ -1,9 +1,17 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Relay — chat is for people, work runs on Relay",
   description: "An AI project manager for teams that hate project management.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Keep the layout locked to the visual viewport so mobile Safari doesn't zoom on
+  // focus or let content spill sideways; users can still pinch-zoom (maximumScale unset).
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

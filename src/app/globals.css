@@ -70,7 +70,7 @@ button { font-family: inherit; }
 :focus-visible { outline: 2px solid var(--ai); outline-offset: 2px; border-radius: 6px; }
 
 /* ---------- shell ---------- */
-.app { display: flex; flex-direction: column; height: 100vh; }
+.app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 
 .topbar {
   display: flex; align-items: center; gap: 16px;
@@ -811,3 +811,65 @@ button { font-family: inherit; }
 .google-btn:hover { background: var(--surface-2); border-color: var(--faint); }
 .auth-divider { display: flex; align-items: center; gap: 12px; color: var(--faint); font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; margin: 15px 0; }
 .auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+/* =========================================================================
+   Phone browser fit (≤640px). The layout already stacks to one column at
+   ≤860px; these rules make it comfortable and safe on a phone: a compact
+   topbar, viewport-bounded menus/panels, and floating windows that become a
+   bottom sheet instead of drifting off-screen.
+   ========================================================================= */
+@media (max-width: 640px) {
+  /* Topbar: keep to one row, drop non-essentials, tighten spacing. */
+  .topbar { gap: 7px; padding: 0 10px; height: 52px; }
+  .brand { font-size: 0; gap: 0; } /* keep the mark, hide the "Relay" wordmark to save width */
+  .proj-tag { display: none; }
+  .topbar .drafts-toggle { display: none; } /* artifacts auto-open; compacted lives in-pane */
+  .ws-pill { max-width: 40vw; padding: 6px 8px; font-size: 0.8rem; }
+  .icon-btn { width: 32px; height: 32px; }
+  .user-pill .av { width: 24px; height: 24px; }
+
+  /* Dropdown menus + notifications become viewport-width sheets under the bar. */
+  .ws-menu, .user-menu { position: fixed; top: 56px; left: 8px; right: 8px; width: auto; min-width: 0; max-width: none; }
+  .notif-panel { position: fixed; top: 56px; left: 8px; right: 8px; width: auto; max-width: none; }
+
+  /* Chat/board split stacks (inherited from the ≤860px rule); tidy the seams. */
+  .workspace { border-right: none; }
+  .ws-head { padding: 11px 14px; }
+  .stream { padding: 16px 13px; gap: 13px; }
+  .msg { max-width: 100%; }
+  .composer { padding: 10px 12px; }
+  .board-scroll { padding: 13px; }
+
+  /* Board pages: smaller chrome; the kanban already scrolls sideways. */
+  .board-page { min-height: 60vh; }
+  .kcol { flex-basis: 78vw; min-width: 78vw; max-width: 82vw; } /* one column at a time, swipe across */
+
+  /* Floating artifact windows → docked bottom sheet (inline left/top would drift off-screen). */
+  .artifact-window { left: 8px !important; right: 8px !important; top: auto !important; bottom: 8px !important; width: auto !important; max-height: 72vh; }
+  .artifact-head { cursor: default; }
+  .artifact-hint { display: none; } /* dragging-to-dock isn't a phone gesture */
+
+  /* Modals hug the screen. */
+  .modal { width: 96vw; max-height: 88vh; border-radius: 14px; }
+  .modal-body { padding: 15px; }
+
+  /* Auth card breathes a bit less. */
+  .auth-card { padding: 24px 20px 18px; border-radius: 16px; }
+  .auth-title { font-size: 1.3rem; }
+}
+
+/* Extra-narrow (≤380px): shave the last bits of horizontal budget. */
+@media (max-width: 380px) {
+  .topbar { gap: 6px; }
+  .brand span, .brand { font-size: 0.94rem; }
+  .ws-pill { max-width: 32vw; }
+  .kcol { flex-basis: 84vw; min-width: 84vw; max-width: 88vw; }
+}
+
+/* Phone: stop iOS zooming when a field is focused (needs ≥16px), and keep long
+   words/URLs from forcing horizontal scroll. */
+@media (max-width: 640px) {
+  .composer textarea, .d-input, .d-area, input.d-input { font-size: 16px; }
+  .bubble, .k-text, .notif-text, .sync-text, .ti-meta, .mywork-board,
+  .msg-col, .auth-form { overflow-wrap: anywhere; }
+}

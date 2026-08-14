@@ -49,7 +49,7 @@ cp .env.example .env
 
 npm install                 # also runs `prisma generate`
 npx prisma db push          # creates all tables in your Neon database
-npm run dev                 # http://localhost:3000
+npm run dev                 # http://localhost:3002
 ```
 
 Open the app, click **Create an account**, then **Create a workspace**. You're in.
@@ -99,7 +99,7 @@ The "Continue with Google" button appears only when `GOOGLE_CLIENT_ID` and
 1. Go to <https://console.cloud.google.com/apis/credentials> → **Create credentials →
    OAuth client ID** → application type **Web application**.
 2. Under **Authorized redirect URIs**, add one per origin you use:
-   - `http://localhost:3000/api/auth/google/callback`
+   - `http://localhost:3002/api/auth/google/callback`
    - `https://<your-vercel-domain>/api/auth/google/callback`
 3. (First time only) configure the **OAuth consent screen** — External, add your app
    name + support email; add yourself as a test user while it's unpublished.
