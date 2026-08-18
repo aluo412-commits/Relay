@@ -253,6 +253,19 @@ export interface SyncItem {
   createdAt: string;
 }
 
+// ---- Source-of-truth files ----
+
+export interface SourceFileDTO {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  description: string | null;
+  uploaderName: string | null;
+  hasText: boolean; // is it text the agent can read?
+  createdAt: string;
+}
+
 // AI review of a progress check-in.
 export interface ProgressReview {
   reviewedNote: string;

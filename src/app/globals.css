@@ -873,3 +873,33 @@ button { font-family: inherit; }
   .bubble, .k-text, .notif-text, .sync-text, .ti-meta, .mywork-board,
   .msg-col, .auth-form { overflow-wrap: anywhere; }
 }
+
+/* ---- Source-of-truth files ---- */
+.files-btn { position: relative; }
+.files-badge { position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: var(--ai); color: #fff; font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--bg); }
+
+.sources-modal { width: min(600px, 94vw); }
+.sources-intro { font-size: 0.86rem; color: var(--muted); line-height: 1.5; margin: 0; }
+.sources-intro code { font-family: var(--font-mono); font-size: 0.82em; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+
+.dropzone { border: 1.5px dashed var(--border-strong); border-radius: 12px; background: var(--surface-2); color: var(--muted); padding: 26px 16px; text-align: center; font-size: 0.9rem; cursor: pointer; transition: border-color 0.15s, background 0.15s, color 0.15s; }
+.dropzone:hover { border-color: var(--ai); color: var(--text); }
+.dropzone.over { border-color: var(--ai); background: color-mix(in srgb, var(--ai) 8%, var(--surface)); color: var(--text); }
+.dropzone.busy { opacity: 0.6; cursor: default; }
+.dropzone b { color: var(--accent); font-weight: 700; }
+
+.sources-list { display: flex; flex-direction: column; gap: 7px; }
+.source-item { display: flex; align-items: center; gap: 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px 11px; }
+.source-ext { flex: none; width: 38px; height: 38px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-family: var(--font-mono); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em; }
+.source-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.source-name { font-weight: 600; font-size: 0.9rem; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-name:hover { color: var(--accent); text-decoration: underline; }
+.source-meta { font-family: var(--font-mono); font-size: 0.66rem; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-del { flex: none; border: none; background: none; color: var(--faint); font-size: 0.95rem; cursor: pointer; width: 26px; height: 26px; border-radius: 7px; }
+.source-del:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.sources-empty { font-size: 0.86rem; color: var(--faint); text-align: center; padding: 10px 0; }
+
+/* Phone: hide the desktop-only topbar controls so the row fits with Sources added. */
+@media (max-width: 640px) {
+  .topbar .desktop-only-btn { display: none; }
+}

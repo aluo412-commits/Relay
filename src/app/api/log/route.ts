@@ -4,6 +4,7 @@ import { loadState, applyActions, executeAgentOutput } from "@/lib/state";
 import { buildLogPrompt } from "@/lib/prompts";
 import { runAgentTurn } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
+import { loadSourceContext } from "@/lib/files";
 import { getContext } from "@/lib/session";
 import type { LogEntryDTO } from "@/lib/types";
 
@@ -70,7 +71,8 @@ export async function POST(req: NextRequest) {
     let artifacts: Array<{ title: string; filename: string; markdown: string; kind: string; pptxBase64?: string }> = [];
     let syncedSummary: string | null = null;
     if (activeBoard) {
-      const prompt = buildLogPrompt(state, activeBoard, member.name, recentLog);
+      const sources = await loadSourceContext(state.project.id);
+      const prompt = buildLogPrompt(state, activeBoard, member.name, recentLog) + sources;
       const result = await runAgentTurn(prompt, [{ role: "user", content: text.trim() }], state.project.model);
 
       // Apply clear status changes immediately.

@@ -42,6 +42,27 @@ model Project {
   messages      Message[]
   logEntries    LogEntry[]
   notifications Notification[]
+  sourceFiles   SourceFile[]
+}
+
+// An uploaded reference file — the workspace's "source of truth". Bytes live in the
+// DB (works locally and on serverless). For text-like files we also store extracted
+// text so the agent can treat it as authoritative context.
+model SourceFile {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploaderId   String? // Member id (not FK'd, so files survive a member removal)
+  uploaderName String?
+  name         String
+  mimeType     String
+  size         Int
+  content      Bytes // the raw file
+  text         String? // extracted text for text-like files (fed to the agent)
+  description  String? // optional one-line "what this is"
+  createdAt    DateTime @default(now())
+
+  @@index([projectId])
 }
 
 // A single Kanban board within a team.

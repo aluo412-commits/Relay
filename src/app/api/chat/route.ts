@@ -5,6 +5,7 @@ import { buildSystemPrompt } from "@/lib/prompts";
 import { runAgentTurn, selectRelevantCompactions } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
 import { createQuestion } from "@/lib/questions";
+import { loadSourceContext } from "@/lib/files";
 import { getContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -69,7 +70,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(state, activeBoard, member.name) + recalled;
+    const sources = await loadSourceContext(state.project.id);
+    const systemPrompt = buildSystemPrompt(state, activeBoard, member.name) + sources + recalled;
     const result = await runAgentTurn(systemPrompt, history, state.project.model);
 
     // Persist Relay's visible reply (store just the reply text so history stays clean).

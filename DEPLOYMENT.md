@@ -118,6 +118,15 @@ Notes:
 - Open the **workspace switcher** (top bar) → the invite code is shown; click to copy.
 - A teammate signs up, then chooses **Join with a code** and pastes it.
 
+## Source-of-truth files
+
+Each workspace has a **Sources** store (folder icon in the top bar): upload reference
+files your team treats as canonical. Text files (`.md`, `.txt`, `.csv`, code, JSON…)
+are read and fed to the agent as authoritative context; any file can be downloaded by
+the team. Bytes are stored in Postgres, so it works locally and on Vercel with no extra
+service — **max 4 MB per file** (staying under serverless request limits). For larger
+files or heavy usage, swap the store for object storage (Vercel Blob / S3) later.
+
 ## Upgrading later (nice-to-haves, not required)
 
 - **Password reset / email verification** — add an email provider (Resend/Postmark) and

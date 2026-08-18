@@ -22,6 +22,7 @@ import type {
   MemberDTO,
   SyncItem,
   QuestionDTO,
+  SourceFileDTO,
 } from "@/lib/types";
 
 type Detail = { kind: "task"; data: TaskDTO } | { kind: "update"; data: UpdateDTO };
@@ -156,6 +157,9 @@ export default function RelayApp() {
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [wsAction, setWsAction] = useState<null | "new" | "join">(null);
+  const [sourceFiles, setSourceFiles] = useState<SourceFileDTO[]>([]);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -272,7 +276,8 @@ export default function RelayApp() {
       fetch(`/api/compact?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/sync?memberId=${id}`).then((r) => r.json()),
       fetch(`/api/question?memberId=${id}`).then((r) => r.json()),
-    ]).then(([s, l, n, c, sy, qs]) => {
+      fetch(`/api/files`).then((r) => r.json()),
+    ]).then(([s, l, n, c, sy, qs, fl]) => {
       if (!s.error) {
         setState(s.state);
         setMessages(s.messages ?? []);
@@ -288,6 +293,7 @@ export default function RelayApp() {
       if (c && !c.error) setCompactions(c.entries ?? []);
       if (sy && !sy.error) setSyncItems(sy.items ?? []);
       if (qs && !qs.error) setQuestions(qs.questions ?? []);
+      if (fl && !fl.error) setSourceFiles(fl.files ?? []);
 
       // Proactive speak-up: after the feed is read, let Relay initiate in chat for
       // the top urgent+actionable item (deduped server-side so it never repeats).
@@ -567,6 +573,40 @@ export default function RelayApp() {
     setState(null);
     setMemberId("");
     setMessages([]);
+  }
+
+  // --- Source-of-truth files ---
+
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of Array.from(fileList)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/files", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Couldn't upload ${file.name}`);
+        setSourceFiles((prev) => [data.file, ...prev]);
+      }
+      showToast(fileList.length === 1 ? "File added to Sources" : `${fileList.length} files added`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function deleteSourceFile(id: string) {
+    try {
+      const res = await fetch(`/api/files/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error || "Couldn't remove that file");
+      setSourceFiles((prev) => prev.filter((f) => f.id !== id));
+      showToast("Removed from Sources");
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   // Compact the current conversation into a summarized entry, then clear the live
@@ -1168,6 +1208,17 @@ export default function RelayApp() {
             Compacted <b>{compactions.length}</b>
           </button>
         ) : null}
+        <button
+          className="icon-btn files-btn"
+          onClick={() => setFilesOpen(true)}
+          title="Sources — the workspace's source of truth"
+          aria-label="Sources"
+        >
+          <svg width="17" height="17" viewBox="0 0 16 16" fill="none">
+            <path d="M1.75 4.5A1.25 1.25 0 0 1 3 3.25h3l1.5 1.5H13a1.25 1.25 0 0 1 1.25 1.25v5.25A1.25 1.25 0 0 1 13 12.5H3a1.25 1.25 0 0 1-1.25-1.25V4.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          </svg>
+          {sourceFiles.length > 0 ? <span className="files-badge">{sourceFiles.length}</span> : null}
+        </button>
         <div className="bell-wrap">
           <button
             className="icon-btn bell"
@@ -1217,7 +1268,7 @@ export default function RelayApp() {
           ) : null}
         </div>
         <button
-          className="icon-btn"
+          className="icon-btn desktop-only-btn"
           onClick={() => {
             setModelDraft(state.project.model);
             setSettingsOpen(true);
@@ -1236,7 +1287,7 @@ export default function RelayApp() {
             />
           </svg>
         </button>
-        <button className="icon-btn" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
+        <button className="icon-btn desktop-only-btn" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
               d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5 13 13M13 3l-1.5 1.5M4.5 11.5 3 13"
@@ -1811,6 +1862,15 @@ export default function RelayApp() {
         </div>
       )}
 
+      {filesOpen && (
+        <SourcesModal
+          files={sourceFiles}
+          uploading={uploading}
+          onUpload={uploadFiles}
+          onDelete={deleteSourceFile}
+          onClose={() => setFilesOpen(false)}
+        />
+      )}
       {wsAction && (
         <div className="modal-overlay" onClick={() => setWsAction(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
@@ -3245,6 +3305,95 @@ function WorkspaceOnboarding({
         <WorkspacePanel initialMode="create" onCreate={onCreate} onJoin={onJoin} />
         <div className="auth-alt">
           <button onClick={onLogout}>Log out</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function SourcesModal({
+  files,
+  uploading,
+  onUpload,
+  onDelete,
+  onClose,
+}: {
+  files: SourceFileDTO[];
+  uploading: boolean;
+  onUpload: (fl: FileList | null) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal sources-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div className="modal-head">
+          <span className="modal-kind">Sources · source of truth</span>
+          <button className="modal-x" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="modal-body">
+          <p className="sources-intro">
+            Upload the reference files your team treats as canonical. Relay reads text files (<code>.md</code>,{" "}
+            <code>.txt</code>, <code>.csv</code>, code…) and uses them as authoritative context. Max 4&nbsp;MB per file.
+          </p>
+          <div
+            className={`dropzone${drag ? " over" : ""}${uploading ? " busy" : ""}`}
+            onClick={() => !uploading && inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDrag(true);
+            }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDrag(false);
+              onUpload(e.dataTransfer.files);
+            }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                onUpload(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            {uploading ? "Uploading…" : <><b>Click to upload</b> or drop files here</>}
+          </div>
+          {files.length ? (
+            <div className="sources-list">
+              {files.map((f) => (
+                <div key={f.id} className="source-item">
+                  <span className="source-ext">{(f.name.split(".").pop() || "?").slice(0, 4).toUpperCase()}</span>
+                  <div className="source-main">
+                    <a className="source-name" href={`/api/files/${f.id}`} download>
+                      {f.name}
+                    </a>
+                    <div className="source-meta">
+                      {fmtBytes(f.size)}
+                      {f.uploaderName ? ` · ${f.uploaderName}` : ""}
+                      {f.hasText ? " · readable by Relay" : " · file only"}
+                    </div>
+                  </div>
+                  <button className="source-del" onClick={() => onDelete(f.id)} title="Remove" aria-label="Remove">
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="sources-empty">No sources yet — add the docs your team keeps coming back to.</p>
+          )}
         </div>
       </div>
     </div>
