@@ -70,6 +70,9 @@ const IconRegen = () => (
   </svg>
 );
 
+// Upload cap — stay under the serverless request-body limit (~4.5 MB on Vercel).
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
 // Compact relative time for workstream cards ("now", "2h", "3d", "1w").
 function relTime(iso?: string | null): string {
   if (!iso) return "";
@@ -973,17 +976,31 @@ export default function RelayApp() {
   // stage them as chips so the next send tells the agent to analyze them.
   async function attachToMessage(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
+    const all = Array.from(fileList);
+    const tooBig = all.filter((f) => f.size > MAX_UPLOAD_BYTES);
+    const ok = all.filter((f) => f.size <= MAX_UPLOAD_BYTES);
+    if (tooBig.length) {
+      setError(
+        tooBig.length === 1
+          ? `“${tooBig[0].name}” is ${fmtBytes(tooBig[0].size)} — over the 4 MB limit.`
+          : `${tooBig.length} files are over the 4 MB limit.`
+      );
+    } else {
+      setError(null);
+    }
+    if (!ok.length) return;
     setUploading(true);
-    setError(null);
     try {
-      for (const file of Array.from(fileList)) {
+      for (const file of ok) {
         const fd = new FormData();
         fd.append("file", file);
         const res = await fetch("/api/files", { method: "POST", body: fd });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `Couldn't attach ${file.name}`);
-        setSourceFiles((prev) => [data.file, ...prev]);
-        setPendingAttachments((prev) => [...prev, data.file]);
+        const data = await res.json().catch(() => ({} as { error?: string; file?: SourceFileDTO }));
+        if (!res.ok) throw new Error(data.error || `Couldn't attach ${file.name}${res.status === 413 ? " — file too large" : ""}`);
+        if (data.file) {
+          setSourceFiles((prev) => [data.file as SourceFileDTO, ...prev]);
+          setPendingAttachments((prev) => [...prev, data.file as SourceFileDTO]);
+        }
       }
     } catch (e) {
       setError((e as Error).message);
@@ -994,19 +1011,33 @@ export default function RelayApp() {
 
   async function uploadFiles(fileList: FileList | null, folderId: string | null = null) {
     if (!fileList || fileList.length === 0) return;
+    const all = Array.from(fileList);
+    const tooBig = all.filter((f) => f.size > MAX_UPLOAD_BYTES);
+    const ok = all.filter((f) => f.size <= MAX_UPLOAD_BYTES);
+    if (tooBig.length) {
+      setError(
+        tooBig.length === 1
+          ? `“${tooBig[0].name}” is ${fmtBytes(tooBig[0].size)} — over the 4 MB limit, so it wasn't uploaded.`
+          : `${tooBig.length} files are over the 4 MB limit and weren't uploaded.`
+      );
+    } else {
+      setError(null);
+    }
+    if (!ok.length) return;
     setUploading(true);
-    setError(null);
     try {
-      for (const file of Array.from(fileList)) {
+      let added = 0;
+      for (const file of ok) {
         const fd = new FormData();
         fd.append("file", file);
         if (folderId) fd.append("folderId", folderId);
         const res = await fetch("/api/files", { method: "POST", body: fd });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `Couldn't upload ${file.name}`);
-        setSourceFiles((prev) => [data.file, ...prev]);
+        const data = await res.json().catch(() => ({} as { error?: string; file?: SourceFileDTO }));
+        if (!res.ok) throw new Error(data.error || `Couldn't upload ${file.name}${res.status === 413 ? " — file too large" : ""}`);
+        if (data.file) setSourceFiles((prev) => [data.file as SourceFileDTO, ...prev]);
+        added++;
       }
-      showToast(fileList.length === 1 ? "File added to Sources" : `${fileList.length} files added`);
+      if (added) showToast(added === 1 ? "File added to Sources" : `${added} files added`);
     } catch (e) {
       setError((e as Error).message);
     } finally {

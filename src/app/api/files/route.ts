@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getContext } from "@/lib/session";
-import { extractText, isTextLike, MAX_FILE_BYTES } from "@/lib/files";
+import { extractText, isReadable, MAX_FILE_BYTES } from "@/lib/files";
 import type { SourceFileDTO } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ function toDTO(f: MetaRow): SourceFileDTO {
     size: f.size,
     description: f.description,
     uploaderName: f.uploaderName,
-    hasText: isTextLike(f.name, f.mimeType), // derived, so we never load the text column here
+    hasText: isReadable(f.name, f.mimeType), // derived (text or PDF), so we never load the text column here
     folderId: f.folderId,
     createdAt: f.createdAt.toISOString(),
   };
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
 
     const buf = Buffer.from(await file.arrayBuffer());
     const mimeType = file.type || "application/octet-stream";
-    const text = extractText(buf, file.name, mimeType);
+    const text = await extractText(buf, file.name, mimeType);
 
     const created = await prisma.sourceFile.create({
       data: {
