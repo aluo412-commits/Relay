@@ -5,7 +5,7 @@ import { extractText, isReadable, MAX_FILE_BYTES } from "@/lib/files";
 import type { SourceFileDTO } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60; // OCR of scanned PDFs/images can be slow
 
 type MetaRow = { id: string; name: string; mimeType: string; size: number; description: string | null; uploaderName: string | null; folderId: string | null; createdAt: Date };
 function toDTO(f: MetaRow): SourceFileDTO {
