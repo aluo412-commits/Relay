@@ -15,14 +15,30 @@ export async function GET(req: NextRequest) {
     const state = await loadState(ctx.project.id);
     const boardId = req.nextUrl.searchParams.get("boardId");
 
-    const rows = await prisma.message.findMany({
+    // The member's most-recently-active thread for this workstream (if any).
+    const convo = await prisma.conversation.findFirst({
       where: { projectId: ctx.project.id, memberId: ctx.member.id, ...(boardId ? { boardId } : {}) },
-      orderBy: { createdAt: "asc" },
-      select: { role: true, content: true, createdAt: true },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
     });
-    const messages = rows.map((m) => ({ role: m.role, content: m.content, createdAt: m.createdAt.toISOString() }));
 
-    return NextResponse.json({ state, messages, currentMemberId: ctx.member.id });
+    // Messages for that thread, or (back-compat) legacy messages not yet in a thread.
+    const rows = await prisma.message.findMany({
+      where: convo
+        ? { conversationId: convo.id }
+        : { projectId: ctx.project.id, memberId: ctx.member.id, conversationId: null, ...(boardId ? { boardId } : {}) },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, role: true, content: true, createdAt: true, feedback: true },
+    });
+    const messages = rows.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt.toISOString(),
+      feedback: m.feedback ?? undefined,
+    }));
+
+    return NextResponse.json({ state, messages, conversationId: convo?.id ?? null, currentMemberId: ctx.member.id });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

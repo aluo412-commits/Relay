@@ -38,6 +38,37 @@ function fmtStamp(iso?: string) {
   return d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+// Small line icons for per-message actions.
+const IconCopy = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+    <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" stroke="currentColor" strokeWidth="1.3" />
+  </svg>
+);
+const IconEdit = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+    <path d="M11.5 2.5 13.5 4.5 6 12l-3 1 1-3 7.5-7.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+  </svg>
+);
+const IconThumbUp = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+    <path d="M5 7 8 2c.9 0 1.5.7 1.3 1.6L9 6h3.2c.9 0 1.5.8 1.3 1.6l-1 4c-.1.7-.8 1.1-1.5 1.1H5V7Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    <rect x="2.5" y="7" width="2.5" height="5.7" rx="0.8" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+);
+const IconThumbDown = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+    <path d="M11 9 8 14c-.9 0-1.5-.7-1.3-1.6L7 10H3.8c-.9 0-1.5-.8-1.3-1.6l1-4C3.6 3.7 4.3 3.3 5 3.3h6V9Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    <rect x="11" y="3.3" width="2.5" height="5.7" rx="0.8" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+);
+const IconRegen = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+    <path d="M13 8a5 5 0 1 1-1.5-3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <path d="M13 2.5V5H10.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 200) + "px";
@@ -64,12 +95,18 @@ const ENTRY_TEMPLATES: { label: string; template: string }[] = [
 ];
 
 interface UIMessage {
+  id?: string; // persisted message id (present once saved server-side)
   role: "user" | "assistant";
   content: string;
   questions?: string[];
   suggestions?: string[];
   createdAt?: string;
+  feedback?: number; // thumbs: -1 down, 1 up (assistant messages)
+  truncated?: boolean; // the model hit the token cap — offer "Continue"
 }
+
+// A named chat thread in the member's private workspace, scoped to a workstream.
+type ConversationDTO = { id: string; title: string; boardId: string | null; updatedAt: string };
 
 // A free-floating window. Two flavors:
 //  • a finished ARTIFACT the agent produced (a markdown document / posted record) —
@@ -163,6 +200,18 @@ export default function RelayApp() {
   // Files attached to the next chat message: already committed to Sources, waiting
   // to be sent so the agent analyzes them in that turn.
   const [pendingAttachments, setPendingAttachments] = useState<SourceFileDTO[]>([]);
+  // Named chat threads (per workstream) + the active one.
+  const [conversations, setConversations] = useState<ConversationDTO[]>([]);
+  const [conversationId, setConversationId] = useState("");
+  const [convListOpen, setConvListOpen] = useState(false); // thread sidebar (mobile/toggle)
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
+  // Editing a previously-sent user message.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  // In-conversation search + scroll affordance.
+  const [chatQuery, setChatQuery] = useState("");
+  const [atBottom, setAtBottom] = useState(true);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -284,7 +333,7 @@ export default function RelayApp() {
     ]).then(([s, l, n, c, sy, qs, fl]) => {
       if (!s.error) {
         setState(s.state);
-        setMessages(s.messages ?? []);
+        // Chat thread is loaded by the activeBoardId effect (loadThreadsForBoard).
         // Land on a valid board for this workspace (the active one may not exist here).
         const bs = s.state?.boards ?? [];
         setActiveBoardId((prev) => (bs.some((b: { id: string }) => b.id === prev) ? prev : bs[0]?.id ?? ""));
@@ -452,48 +501,203 @@ export default function RelayApp() {
     };
   }, []);
 
-  async function send(textArg?: string) {
-    const text = (textArg ?? input).trim();
-    // Attachments (from the composer) may only ride along with a fresh message, not a
-    // quick-reply/template send that passes textArg.
-    const attachments = textArg === undefined ? pendingAttachments : [];
-    if ((!text && attachments.length === 0) || sending || !memberId) return;
-    setInput("");
-    setPendingAttachments([]);
-    if (inputRef.current) inputRef.current.style.height = "auto";
+  // --- Conversation threads ---
+
+  const loadConvList = useCallback(async (boardId: string) => {
+    if (!boardId) return;
+    try {
+      const r = await fetch(`/api/conversation?boardId=${boardId}`).then((res) => res.json());
+      if (!r.error) setConversations(r.conversations ?? []);
+    } catch {
+      /* non-critical */
+    }
+  }, []);
+
+  const openConversation = useCallback(async (id: string) => {
+    setConversationId(id);
+    setConvListOpen(false);
+    setEditingId(null);
+    try {
+      const r = await fetch(`/api/conversation/${id}`).then((res) => res.json());
+      if (!r.error) setMessages(r.messages ?? []);
+    } catch {
+      /* non-critical */
+    }
+  }, []);
+
+  // Load the threads for a workstream and open the most recent one (or fall back to
+  // any legacy messages not yet grouped into a thread).
+  const loadThreadsForBoard = useCallback(
+    async (boardId: string) => {
+      if (!boardId) return;
+      try {
+        const r = await fetch(`/api/conversation?boardId=${boardId}`).then((res) => res.json());
+        const convs: ConversationDTO[] = r.conversations ?? [];
+        setConversations(convs);
+        if (convs.length) {
+          await openConversation(convs[0].id);
+        } else {
+          setConversationId("");
+          const s = await fetch(`/api/state?boardId=${boardId}`).then((res) => res.json());
+          if (!s.error) {
+            setMessages(s.messages ?? []);
+            if (s.conversationId) setConversationId(s.conversationId);
+          }
+        }
+      } catch {
+        /* non-critical */
+      }
+    },
+    [openConversation]
+  );
+
+  // Swap the chat thread whenever the active workstream (or identity) changes.
+  useEffect(() => {
+    if (memberId && activeBoardId) loadThreadsForBoard(activeBoardId);
+  }, [memberId, activeBoardId, loadThreadsForBoard]);
+
+  async function newConversation() {
+    setMode("chat");
+    try {
+      const r = await fetch("/api/conversation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ boardId: activeBoardId }),
+      }).then((res) => res.json());
+      if (r.conversation) {
+        setConversations((c) => [r.conversation, ...c]);
+        setConversationId(r.conversation.id);
+        setMessages([]);
+        setConvListOpen(false);
+        setEditingId(null);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function renameConversation(id: string, title: string) {
+    const clean = title.trim();
+    setRenamingId(null);
+    if (!clean) return;
+    setConversations((c) => c.map((x) => (x.id === id ? { ...x, title: clean } : x)));
+    try {
+      await fetch(`/api/conversation/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: clean }),
+      });
+    } catch {
+      /* non-critical */
+    }
+  }
+
+  async function deleteConversation(id: string) {
+    const remaining = conversations.filter((c) => c.id !== id);
+    setConversations(remaining);
+    try {
+      await fetch(`/api/conversation/${id}`, { method: "DELETE" });
+    } catch {
+      /* non-critical */
+    }
+    if (conversationId === id) {
+      if (remaining.length) openConversation(remaining[0].id);
+      else {
+        setConversationId("");
+        setMessages([]);
+      }
+    }
+  }
+
+  // --- One agent turn (fresh message, regenerate, edit-and-rerun, or continue) ---
+
+  async function runTurn(opts: {
+    text?: string;
+    attachments?: SourceFileDTO[];
+    regenerate?: boolean;
+    editMessageId?: string;
+    cont?: boolean;
+  }) {
+    if (sending || !memberId) return;
+    const { regenerate, editMessageId, cont } = opts;
+    const attachments = opts.attachments ?? [];
+    const text = (opts.text ?? "").trim();
+    if (!text && attachments.length === 0 && !regenerate && !cont) return;
     setError(null);
+
     const attachedFileIds = attachments.map((f) => f.id);
     const attachNote = attachments.length
       ? `\n\n[Attached files: ${attachments.map((f) => f.name).join(", ")}]`
       : "";
     const displayText = (text || (attachments.length ? "Please analyze the attached file(s)." : "")) + attachNote;
-    // drop stale suggestions from the previous assistant turn
-    setMessages((m) => [
-      ...m.map((x) => (x.role === "assistant" ? { ...x, suggestions: undefined } : x)),
-      { role: "user", content: displayText, createdAt: new Date().toISOString() },
-    ]);
+
+    if (regenerate) {
+      // Drop the trailing assistant bubble(s); we'll answer the last user turn again.
+      setMessages((m) => {
+        const c = [...m];
+        while (c.length && c[c.length - 1].role === "assistant") c.pop();
+        return c;
+      });
+    } else if (!cont) {
+      setMessages((m) => [
+        ...m.map((x) => (x.role === "assistant" ? { ...x, suggestions: undefined } : x)),
+        { role: "user", content: displayText, createdAt: new Date().toISOString() },
+      ]);
+    }
+
     setSending(true);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberId, message: text, boardId: activeBoardId, attachedFileIds }),
+        body: JSON.stringify({
+          memberId,
+          message: text,
+          boardId: activeBoardId,
+          conversationId: conversationId || undefined,
+          attachedFileIds,
+          regenerate,
+          editMessageId,
+          continue: cont,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Request failed");
       const turn = data.turn;
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          content: turn.reply,
-          questions: turn.questions?.length ? turn.questions : undefined,
-          suggestions: turn.suggestions?.length ? turn.suggestions : undefined,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-      // The agent PROPOSES: drafts pop up as editable windows to review & publish;
-      // finished documents arrive as artifacts. Nothing hit the board yet.
+      if (data.conversationId) setConversationId(data.conversationId);
+
+      setMessages((m) => {
+        const c = [...m];
+        // Stamp the id onto the newest un-id'd user bubble (needed for edit).
+        if (data.userMessageId) {
+          for (let i = c.length - 1; i >= 0; i--) {
+            if (c[i].role === "user" && !c[i].id) {
+              c[i] = { ...c[i], id: data.userMessageId };
+              break;
+            }
+          }
+        }
+        if (cont) {
+          for (let i = c.length - 1; i >= 0; i--) {
+            if (c[i].role === "assistant") {
+              c[i] = { ...c[i], id: data.messageId, content: `${c[i].content}\n\n${turn.reply}`.trim(), truncated: !!data.truncated };
+              break;
+            }
+          }
+        } else {
+          c.push({
+            id: data.messageId,
+            role: "assistant",
+            content: turn.reply,
+            questions: turn.questions?.length ? turn.questions : undefined,
+            suggestions: turn.suggestions?.length ? turn.suggestions : undefined,
+            createdAt: new Date().toISOString(),
+            truncated: !!data.truncated,
+          });
+        }
+        return c;
+      });
+
       if (data.state) setState(data.state);
       addDrafts(Array.isArray(data.drafts) ? data.drafts : []);
       addArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
@@ -502,10 +706,70 @@ export default function RelayApp() {
         refreshQuestions();
       }
       refreshSync();
+      loadConvList(activeBoardId);
     } catch (e) {
-      setError((e as Error).message);
+      if ((e as Error).name !== "AbortError") setError((e as Error).message);
     } finally {
       setSending(false);
+    }
+  }
+
+  function send(textArg?: string) {
+    const text = (textArg ?? input).trim();
+    // Attachments (from the composer) only ride along with a fresh message, not a
+    // quick-reply/template send that passes textArg.
+    const attachments = textArg === undefined ? pendingAttachments : [];
+    if ((!text && attachments.length === 0) || sending || !memberId) return;
+    setInput("");
+    setPendingAttachments([]);
+    if (inputRef.current) inputRef.current.style.height = "auto";
+    return runTurn({ text, attachments });
+  }
+
+  function regenerate() {
+    runTurn({ regenerate: true });
+  }
+
+  function continueGenerating() {
+    runTurn({ cont: true });
+  }
+
+  function saveEdit() {
+    const id = editingId;
+    const text = editingText.trim();
+    if (!id || !text) {
+      setEditingId(null);
+      return;
+    }
+    setEditingId(null);
+    setEditingText("");
+    // Truncate to before the edited message, then re-run with the new text.
+    setMessages((m) => {
+      const idx = m.findIndex((x) => x.id === id);
+      return idx >= 0 ? m.slice(0, idx) : m;
+    });
+    runTurn({ text, editMessageId: id });
+  }
+
+  function copyMessage(text: string) {
+    navigator.clipboard?.writeText(text).then(
+      () => showToast("Copied"),
+      () => setError("Couldn't copy to clipboard")
+    );
+  }
+
+  async function setMessageFeedback(id: string, value: number) {
+    const current = messages.find((x) => x.id === id)?.feedback;
+    const next = current === value ? 0 : value; // toggle off if already set
+    setMessages((m) => m.map((x) => (x.id === id ? { ...x, feedback: next || undefined } : x)));
+    try {
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: id, value: next }),
+      });
+    } catch {
+      /* non-critical */
     }
   }
 
@@ -1375,6 +1639,82 @@ export default function RelayApp() {
 
           {error && <div className="banner">{error}</div>}
 
+          {mode === "chat" && (
+            <div className="conv-bar">
+              <button
+                className="conv-toggle"
+                onClick={() => setConvListOpen((o) => !o)}
+                title="Conversations"
+              >
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                <span className="conv-current">
+                  {conversations.find((c) => c.id === conversationId)?.title ?? "New chat"}
+                </span>
+              </button>
+              <div className="conv-search">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
+                  <path d="m11 11 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                </svg>
+                <input
+                  value={chatQuery}
+                  onChange={(e) => setChatQuery(e.target.value)}
+                  placeholder="Search this chat…"
+                  aria-label="Search this conversation"
+                />
+                {chatQuery ? (
+                  <button className="conv-search-x" onClick={() => setChatQuery("")} aria-label="Clear search">
+                    ×
+                  </button>
+                ) : null}
+              </div>
+              <button className="conv-new" onClick={newConversation} title="Start a new chat">
+                ＋ New
+              </button>
+            </div>
+          )}
+          {mode === "chat" && convListOpen && (
+            <div className="conv-list">
+              {conversations.length === 0 ? (
+                <div className="conv-empty">No saved chats yet — this one saves when you send.</div>
+              ) : (
+                conversations.map((c) => (
+                  <div key={c.id} className={"conv-item" + (c.id === conversationId ? " on" : "")}>
+                    {renamingId === c.id ? (
+                      <input
+                        className="conv-rename"
+                        value={renameText}
+                        autoFocus
+                        onChange={(e) => setRenameText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") renameConversation(c.id, renameText);
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        onBlur={() => renameConversation(c.id, renameText)}
+                      />
+                    ) : (
+                      <button className="conv-open" onClick={() => openConversation(c.id)}>
+                        {c.title}
+                      </button>
+                    )}
+                    <button
+                      className="conv-mini"
+                      title="Rename"
+                      onClick={() => { setRenamingId(c.id); setRenameText(c.title); }}
+                    >
+                      <IconEdit />
+                    </button>
+                    <button className="conv-mini" title="Delete" onClick={() => deleteConversation(c.id)}>
+                      ×
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
           {mode === "log" ? (
             <>
               <div className="stream log-stream" ref={streamRef}>
@@ -1438,7 +1778,14 @@ export default function RelayApp() {
             </>
           ) : (
           <>
-          <div className="stream" ref={streamRef}>
+          <div
+            className="stream"
+            ref={streamRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 60);
+            }}
+          >
             <SyncPanel items={syncItems} onOpenTask={openTaskByName} onOpenQuestions={() => setQuestionsOpen(true)} onDismiss={dismissSync} />
             {briefing && (
               <BriefingCard
@@ -1480,45 +1827,125 @@ export default function RelayApp() {
                 </div>
               </div>
             ) : null}
-            {messages.map((m, i) =>
-              m.role === "user" ? (
-                <div key={i} className="msg user">
-                  <span className="av" style={{ background: currentMember.color }}>
-                    {initials(currentMember.name)}
-                  </span>
-                  <div className="msg-col">
-                    <div className="bubble">
-                      <RichText text={m.content} />
+            {(() => {
+              const q = chatQuery.trim().toLowerCase();
+              const list = q ? messages.filter((m) => m.content.toLowerCase().includes(q)) : messages;
+              const lastMsg = messages[messages.length - 1];
+              if (q && list.length === 0) {
+                return <div className="search-empty">No messages match “{chatQuery.trim()}”.</div>;
+              }
+              return list.map((m, i) =>
+                m.role === "user" ? (
+                  <div key={m.id ?? i} className="msg user">
+                    <span className="av" style={{ background: currentMember.color }}>
+                      {initials(currentMember.name)}
+                    </span>
+                    <div className="msg-col">
+                      {editingId && editingId === m.id ? (
+                        <div className="msg-edit">
+                          <textarea
+                            className="d-input"
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            rows={3}
+                            autoFocus
+                          />
+                          <div className="msg-edit-actions">
+                            <button className="btn btn-primary" onClick={saveEdit} disabled={!editingText.trim()}>
+                              Save &amp; resend
+                            </button>
+                            <button className="btn btn-ghost" onClick={() => { setEditingId(null); setEditingText(""); }}>
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="bubble">
+                            <RichText text={m.content} />
+                          </div>
+                          <div className="msg-meta">
+                            {m.createdAt ? <span className="msg-time">{fmtStamp(m.createdAt)}</span> : null}
+                            {m.id ? (
+                              <div className="msg-actions">
+                                <button className="msg-act" title="Copy" onClick={() => copyMessage(m.content)}>
+                                  <IconCopy />
+                                </button>
+                                <button
+                                  className="msg-act"
+                                  title="Edit & resend"
+                                  disabled={sending}
+                                  onClick={() => { setEditingId(m.id!); setEditingText(m.content); }}
+                                >
+                                  <IconEdit />
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </>
+                      )}
                     </div>
-                    {m.createdAt ? <span className="msg-time">{fmtStamp(m.createdAt)}</span> : null}
                   </div>
-                </div>
-              ) : (
-                <div key={i} className="msg ai">
-                  <span className="av">
-                    <RelayGlyph small />
-                  </span>
-                  <div className="msg-col">
-                    <div className="bubble">
-                      <RichText text={m.content} />
-                    </div>
-                    {m.createdAt ? <span className="msg-time">{fmtStamp(m.createdAt)}</span> : null}
-                    {m.questions?.length ? (
-                      <QuestionChecklist questions={m.questions} onSubmit={(t) => send(t)} disabled={sending} />
-                    ) : null}
-                    {m.suggestions?.length ? (
-                      <div className="suggestions">
-                        {m.suggestions.map((s, si) => (
-                          <button key={si} className="sug-chip" onClick={() => insertText(s)} disabled={sending}>
-                            {s}
-                          </button>
-                        ))}
+                ) : (
+                  <div key={m.id ?? i} className="msg ai">
+                    <span className="av">
+                      <RelayGlyph small />
+                    </span>
+                    <div className="msg-col">
+                      <div className="bubble">
+                        <RichText text={m.content} />
                       </div>
-                    ) : null}
+                      <div className="msg-meta">
+                        {m.createdAt ? <span className="msg-time">{fmtStamp(m.createdAt)}</span> : null}
+                        {m.id ? (
+                          <div className="msg-actions">
+                            <button className="msg-act" title="Copy" onClick={() => copyMessage(m.content)}>
+                              <IconCopy />
+                            </button>
+                            <button
+                              className={"msg-act" + (m.feedback === 1 ? " on" : "")}
+                              title="Good response"
+                              onClick={() => setMessageFeedback(m.id!, 1)}
+                            >
+                              <IconThumbUp />
+                            </button>
+                            <button
+                              className={"msg-act" + (m.feedback === -1 ? " on" : "")}
+                              title="Bad response"
+                              onClick={() => setMessageFeedback(m.id!, -1)}
+                            >
+                              <IconThumbDown />
+                            </button>
+                            {m === lastMsg && !sending ? (
+                              <button className="msg-act" title="Regenerate" onClick={regenerate}>
+                                <IconRegen />
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      {m === lastMsg && m.truncated && !sending ? (
+                        <button className="continue-btn" onClick={continueGenerating}>
+                          Continue generating
+                        </button>
+                      ) : null}
+                      {m.questions?.length ? (
+                        <QuestionChecklist questions={m.questions} onSubmit={(t) => send(t)} disabled={sending} />
+                      ) : null}
+                      {m.suggestions?.length ? (
+                        <div className="suggestions">
+                          {m.suggestions.map((s, si) => (
+                            <button key={si} className="sug-chip" onClick={() => insertText(s)} disabled={sending}>
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              )
-            )}
+                )
+              );
+            })()}
 
             {sending && (
               <div className="msg ai">
@@ -1551,6 +1978,21 @@ export default function RelayApp() {
               </div>
             )}
           </div>
+
+          {!atBottom && messages.length > 0 ? (
+            <button
+              className="scroll-bottom"
+              aria-label="Scroll to latest"
+              onClick={() => {
+                const el = streamRef.current;
+                if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v9M4 8.5 8 12l4-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          ) : null}
 
           {input.includes("\n") && input.includes("**") ? (
             <div className="composer-hint">✨ Fill in what you know — Relay completes the rest when you send.</div>

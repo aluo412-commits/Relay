@@ -11,7 +11,38 @@ import { getContext } from "@/lib/session";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// POST /api/chat  { message, boardId? }
+// A short title from the first user message: first ~6 words, trimmed.
+function titleFrom(text: string): string {
+  const words = text.replace(/\s+/g, " ").trim().split(" ").slice(0, 6).join(" ");
+  return (words || "New chat").slice(0, 60);
+}
+
+// Resolve (or create) the conversation this turn belongs to. Adopts any legacy
+// messages (conversationId null) for this member+board into a brand-new thread so
+// existing history isn't orphaned by the switch to named conversations.
+async function resolveConversation(
+  projectId: string,
+  memberId: string,
+  boardId: string | null,
+  conversationId: string | undefined,
+  firstUserText: string
+): Promise<string> {
+  if (conversationId) {
+    const c = await prisma.conversation.findFirst({ where: { id: conversationId, memberId } });
+    if (c) return c.id;
+  }
+  const created = await prisma.conversation.create({
+    data: { projectId, memberId, boardId, title: titleFrom(firstUserText) },
+  });
+  await prisma.message.updateMany({
+    where: { projectId, memberId, boardId, conversationId: null },
+    data: { conversationId: created.id },
+  });
+  return created.id;
+}
+
+// POST /api/chat
+// { message?, boardId?, conversationId?, attachedFileIds?, regenerate?, editMessageId?, continue? }
 // Runs one Relay turn for the signed-in member and persists the exchange.
 export async function POST(req: NextRequest) {
   try {
@@ -19,64 +50,98 @@ export async function POST(req: NextRequest) {
     if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     const memberId = ctx.member.id;
 
-    const { message, boardId, attachedFileIds } = (await req.json()) as {
+    const body = (await req.json()) as {
       message?: string;
       boardId?: string;
+      conversationId?: string;
       attachedFileIds?: string[];
+      regenerate?: boolean;
+      editMessageId?: string;
+      continue?: boolean;
     };
-    const attachIds = Array.isArray(attachedFileIds)
-      ? attachedFileIds.filter((x): x is string => typeof x === "string")
+    const attachIds = Array.isArray(body.attachedFileIds)
+      ? body.attachedFileIds.filter((x): x is string => typeof x === "string")
       : [];
-    const trimmed = message?.trim() ?? "";
-    if (!trimmed && attachIds.length === 0) {
+    const trimmed = body.message?.trim() ?? "";
+    const isRegen = !!body.regenerate;
+    const isContinue = !!body.continue;
+    if (!trimmed && attachIds.length === 0 && !isRegen && !isContinue) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
     const state = await loadState(ctx.project.id);
     const member = ctx.member;
+    const activeBoard = state.boards.find((b) => b.id === body.boardId) ?? state.boards[0];
+    if (!activeBoard) return NextResponse.json({ error: "No board found" }, { status: 404 });
+    const chatBoardId = activeBoard.id;
 
-    // Load any files attached to this message (already committed to Sources by the
-    // client). Their content is injected below so the agent analyzes them now.
+    // Load any files attached to this message (already committed to Sources).
     const attached = await loadAttachedContext(state.project.id, attachIds);
-    // A bare attachment (no typed text) still needs a directive for the agent.
     const userText =
       trimmed || (attached.names.length ? "Please analyze the attached file(s)." : "");
-    // The stored/displayed message notes attachments so the thread has context and
-    // the agent's history reflects what was sent.
     const storedContent = attached.names.length
       ? `${userText}\n\n[Attached files: ${attached.names.join(", ")}]`
       : userText;
 
-    const chatBoardId = (state.boards.find((b) => b.id === boardId) ?? state.boards[0])?.id ?? null;
+    const conversationId = await resolveConversation(
+      state.project.id,
+      memberId,
+      chatBoardId,
+      body.conversationId,
+      userText
+    );
 
-    // Persist the user's message, scoped to the active workstream.
-    await prisma.message.create({
-      data: { projectId: state.project.id, memberId, boardId: chatBoardId, role: "user", content: storedContent },
+    // Ordered thread for this conversation (used for rewind + history).
+    const convoRows = await prisma.message.findMany({
+      where: { conversationId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, role: true, content: true },
     });
 
-    // Build history from this member's chat thread FOR THIS WORKSTREAM.
-    const priorRows = await prisma.message.findMany({
-      where: { projectId: state.project.id, memberId, boardId: chatBoardId },
-      orderBy: { createdAt: "asc" },
-      select: { role: true, content: true },
-    });
-    const history = priorRows.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
+    // Edit-and-rerun: drop the edited message and everything after it.
+    if (body.editMessageId) {
+      const idx = convoRows.findIndex((m) => m.id === body.editMessageId);
+      if (idx >= 0) {
+        const toDelete = convoRows.slice(idx).map((m) => m.id);
+        await prisma.message.deleteMany({ where: { id: { in: toDelete } } });
+        convoRows.length = idx;
+      }
+    }
 
-    const activeBoard = state.boards.find((b) => b.id === boardId) ?? state.boards[0];
-    if (!activeBoard) return NextResponse.json({ error: "No board found" }, { status: 404 });
+    // Regenerate: drop the trailing assistant message(s) so we answer the last user turn afresh.
+    if (isRegen) {
+      const toDelete: string[] = [];
+      while (convoRows.length && convoRows[convoRows.length - 1].role === "assistant") {
+        toDelete.push(convoRows[convoRows.length - 1].id);
+        convoRows.pop();
+      }
+      if (toDelete.length) await prisma.message.deleteMany({ where: { id: { in: toDelete } } });
+    }
 
-    // Compacted context: the agent scans past-conversation summaries and pulls back
-    // only the ones relevant to this message, so context stays light without loss.
+    // Persist the fresh user message (not for regenerate/continue, which reuse the thread as-is).
+    let userMessageId: string | null = null;
+    if (!isRegen && !isContinue) {
+      const created = await prisma.message.create({
+        data: { projectId: state.project.id, memberId, boardId: chatBoardId, conversationId, role: "user", content: storedContent },
+      });
+      convoRows.push({ id: created.id, role: "user", content: storedContent });
+      userMessageId = created.id;
+    }
+
+    // Build history from the (possibly rewound) thread.
+    const history = convoRows.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    if (isContinue) {
+      history.push({ role: "user", content: "Continue exactly where you left off. Do not repeat what you already wrote." });
+    }
+
+    // Compacted context recall.
     let recalled = "";
     const compactions = await prisma.compactEntry.findMany({
       where: { projectId: state.project.id, memberId },
       orderBy: { createdAt: "desc" },
       select: { id: true, heading: true, summary: true, content: true },
     });
-    if (compactions.length) {
+    if (compactions.length && userText) {
       const relevantIds = await selectRelevantCompactions(
         userText,
         compactions.map((c) => ({ id: c.id, heading: c.heading, summary: c.summary })),
@@ -95,26 +160,52 @@ export async function POST(req: NextRequest) {
       buildSystemPrompt(state, activeBoard, member.name) + sources + recalled + attached.block;
     const result = await runAgentTurn(systemPrompt, history, state.project.model);
 
-    // Persist Relay's visible reply (store just the reply text so history stays clean).
-    await prisma.message.create({
-      data: { projectId: state.project.id, memberId, boardId: chatBoardId, role: "assistant", content: result.reply },
+    // Bump the conversation's updatedAt, and set its title from the first real message
+    // if it's still the default.
+    const convoMeta = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { title: true },
+    });
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        updatedAt: new Date(),
+        ...(userText && convoMeta?.title === "New chat" ? { title: titleFrom(userText) } : {}),
+      },
     });
 
-    // Full agent-turn log (raw tool calls) for inspectability. Survives reseeds.
+    // Continue mode appends to the previous assistant message instead of adding a new bubble.
+    let assistantId: string;
+    if (isContinue) {
+      const lastAssistant = [...convoRows].reverse().find((m) => m.role === "assistant");
+      if (lastAssistant) {
+        const merged = `${lastAssistant.content}\n\n${result.reply}`.trim();
+        await prisma.message.update({ where: { id: lastAssistant.id }, data: { content: merged } });
+        assistantId = lastAssistant.id;
+      } else {
+        const m = await prisma.message.create({
+          data: { projectId: state.project.id, memberId, boardId: chatBoardId, conversationId, role: "assistant", content: result.reply },
+        });
+        assistantId = m.id;
+      }
+    } else {
+      const m = await prisma.message.create({
+        data: { projectId: state.project.id, memberId, boardId: chatBoardId, conversationId, role: "assistant", content: result.reply },
+      });
+      assistantId = m.id;
+    }
+
+    // Full agent-turn log (raw tool calls) for inspectability.
     await prisma.agentLog.create({
       data: {
         memberName: member.name,
         boardName: activeBoard.name,
-        userMessage: storedContent,
+        userMessage: storedContent || (isContinue ? "[continue]" : "[regenerate]"),
         toolCalls: JSON.stringify(result.rawToolCalls ?? []),
         reply: result.reply,
       },
     });
 
-    // In chat, the agent PROPOSES: board/timeline changes come back as editable
-    // drafts the user reviews and publishes (POST /api/publish). Only documents
-    // (reports/specs it actually wrote) are delivered instantly as artifacts —
-    // they don't mutate shared state.
     const drafts = proposalsToDrafts(result.proposals, result.syncActions);
     const docArtifacts = result.documents.map((d) => ({
       title: d.title,
@@ -122,7 +213,6 @@ export async function POST(req: NextRequest) {
       markdown: d.markdown,
       kind: "document" as const,
     }));
-    // Render any authored decks into real .pptx bytes (base64) delivered as artifacts.
     const deckArtifacts = await Promise.all(
       result.presentations.map(async (p) => ({
         title: p.title,
@@ -134,8 +224,6 @@ export async function POST(req: NextRequest) {
     );
     const artifacts = [...docArtifacts, ...deckArtifacts];
 
-    // Execute any questions the agent decided to ask (resolve names → members,
-    // build branch actions, create + deliver). These run immediately.
     let askedCount = 0;
     for (const aq of result.askQuestions) {
       const everyone = aq.ask.trim().toLowerCase() === "everyone";
@@ -143,7 +231,7 @@ export async function POST(req: NextRequest) {
       const targets = everyone
         ? []
         : state.members.filter((m) => names.some((n) => n.toLowerCase() === m.name.toLowerCase()));
-      if (!everyone && targets.length === 0) continue; // couldn't resolve anyone
+      if (!everyone && targets.length === 0) continue;
       const single = targets.length === 1;
       const branchYes =
         single && aq.answerType === "yesno" && aq.ifYesTask
@@ -177,6 +265,10 @@ export async function POST(req: NextRequest) {
         questions: result.questions,
         suggestions: result.suggestions,
       },
+      messageId: assistantId,
+      userMessageId,
+      conversationId,
+      append: isContinue,
       drafts,
       artifacts,
       asked: askedCount,

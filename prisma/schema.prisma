@@ -43,6 +43,7 @@ model Project {
   logEntries    LogEntry[]
   notifications Notification[]
   sourceFiles   SourceFile[]
+  conversations Conversation[]
 }
 
 // An uploaded reference file — the workspace's "source of truth". Bytes live in the
@@ -98,6 +99,7 @@ model Member {
   logEntries    LogEntry[]
   updates    Update[]
   messages   Message[]
+  conversations Conversation[]
 
   @@unique([projectId, userId]) // one membership per user per workspace
 }
@@ -279,15 +281,36 @@ model ReconcileFlag {
   @@unique([memberId, taskName])
 }
 
-// Per-member private AI workspace conversation.
-model Message {
+// A named chat thread inside a member's private AI workspace, scoped to a workstream
+// (board). Lets a member keep several conversations, switch between them, and rename.
+model Conversation {
   id        String   @id @default(cuid())
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   memberId  String
   member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  boardId   String? // which workstream this chat belongs to (null = legacy/global)
-  role      String // "user" | "assistant"
-  content   String
+  boardId   String? // the workstream this thread belongs to
+  title     String   @default("New chat")
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+
+  @@index([projectId, memberId])
+}
+
+// Per-member private AI workspace conversation.
+model Message {
+  id             String        @id @default(cuid())
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  boardId        String? // which workstream this chat belongs to (null = legacy/global)
+  conversationId String? // which named thread this belongs to (null = legacy)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // "user" | "assistant"
+  content        String
+  feedback       Int? // thumbs: -1 down, 1 up, null none (assistant messages only)
+  createdAt      DateTime      @default(now())
 }

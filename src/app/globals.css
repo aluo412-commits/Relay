@@ -162,7 +162,7 @@ button { font-family: inherit; }
 @media (max-width: 860px) { .panes { grid-template-columns: 1fr; overflow-y: auto; } }
 
 /* ===== workspace (left) ===== */
-.workspace { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
+.workspace { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); position: relative; }
 .ws-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 13px 20px; border-bottom: 1px solid var(--border); }
 .ws-head .badge { width: 28px; height: 28px; border-radius: 8px; background: var(--ai-soft); color: var(--ai); display: grid; place-items: center; }
 .ws-head .t { font-weight: 700; font-size: 0.95rem; }
@@ -714,6 +714,53 @@ button { font-family: inherit; }
 /* message timestamps */
 .msg-time { font-family: var(--font-mono); font-size: 0.62rem; color: var(--faint); padding: 0 4px; }
 .msg.user .msg-time { text-align: right; }
+
+/* Per-message meta row (timestamp + hover actions) */
+.msg-meta { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+.msg.user .msg-meta { flex-direction: row-reverse; }
+.msg-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.14s; }
+.msg:hover .msg-actions, .msg-act.on { opacity: 1; }
+.msg-act { border: none; background: transparent; color: var(--muted); width: 24px; height: 24px; border-radius: 6px; cursor: pointer; display: grid; place-items: center; }
+.msg-act:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.msg-act:disabled { opacity: 0.4; cursor: default; }
+.msg-act.on { color: var(--ai); background: var(--ai-soft); }
+@media (hover: none) { .msg-actions { opacity: 1; } }
+
+/* Editing a sent user message */
+.msg-edit { display: flex; flex-direction: column; gap: 7px; width: min(420px, 70vw); }
+.msg-edit textarea { width: 100%; }
+.msg-edit-actions { display: flex; gap: 7px; justify-content: flex-end; }
+
+.continue-btn { align-self: flex-start; font-family: var(--font-sans); font-size: 0.82rem; font-weight: 600; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.continue-btn:hover { border-color: var(--ai); color: var(--ai); }
+
+.search-empty { color: var(--muted); font-size: 0.88rem; text-align: center; padding: 24px 0; }
+
+/* Scroll-to-latest floating button */
+.scroll-bottom { position: absolute; right: 18px; bottom: 84px; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow); cursor: pointer; display: grid; place-items: center; z-index: 5; }
+.scroll-bottom:hover { border-color: var(--ai); color: var(--ai); }
+
+/* Conversation bar + thread list */
+.conv-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.conv-toggle { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 9px; padding: 6px 10px; cursor: pointer; max-width: 45%; }
+.conv-toggle:hover { border-color: var(--ai); }
+.conv-current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.84rem; font-weight: 600; }
+.conv-search { flex: 1; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 0 9px; color: var(--muted); min-width: 0; }
+.conv-search input { flex: 1; border: none; background: transparent; outline: none; font: inherit; font-size: 0.84rem; color: var(--text); padding: 6px 0; min-width: 0; }
+.conv-search input::placeholder { color: var(--faint); }
+.conv-search-x { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0 2px; }
+.conv-new { flex: none; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: 9px; padding: 6px 11px; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+.conv-new:hover { border-color: var(--ai); color: var(--ai); }
+.conv-list { flex: none; max-height: 240px; overflow-y: auto; border-bottom: 1px solid var(--border); background: var(--surface); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.conv-empty { color: var(--muted); font-size: 0.82rem; padding: 10px 8px; }
+.conv-item { display: flex; align-items: center; gap: 4px; border-radius: 8px; padding: 2px; }
+.conv-item.on { background: var(--ai-soft); }
+.conv-open { flex: 1; text-align: left; border: none; background: transparent; color: var(--text); font: inherit; font-size: 0.85rem; padding: 7px 9px; border-radius: 7px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-open:hover { background: var(--surface-2); }
+.conv-item.on .conv-open { font-weight: 600; color: var(--ai); }
+.conv-rename { flex: 1; border: 1px solid var(--ai); background: var(--bg); color: var(--text); border-radius: 7px; padding: 6px 9px; font: inherit; font-size: 0.85rem; outline: none; }
+.conv-mini { border: none; background: transparent; color: var(--muted); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; display: grid; place-items: center; font-size: 1rem; flex: none; }
+.conv-mini:hover { background: var(--surface-2); color: var(--text); }
 
 /* Artifact — free-floating draggable window */
 .artifact-window { position: fixed; width: min(560px, 92vw); max-height: 78vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden; z-index: 150; }
