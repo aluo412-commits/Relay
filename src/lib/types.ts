@@ -263,6 +263,14 @@ export interface SourceFileDTO {
   description: string | null;
   uploaderName: string | null;
   hasText: boolean; // is it text the agent can read?
+  folderId: string | null; // null = workspace root
+  createdAt: string;
+}
+
+export interface SourceFolderDTO {
+  id: string;
+  name: string;
+  parentId: string | null;
   createdAt: string;
 }
 

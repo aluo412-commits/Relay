@@ -43,7 +43,25 @@ model Project {
   logEntries    LogEntry[]
   notifications Notification[]
   sourceFiles   SourceFile[]
+  sourceFolders SourceFolder[]
   conversations Conversation[]
+}
+
+// A folder in the workspace's source-of-truth tree. Self-referential so folders
+// nest; deleting a folder cascades to its subfolders and files.
+model SourceFolder {
+  id        String         @id @default(cuid())
+  projectId String
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    SourceFolder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  SourceFolder[] @relation("FolderTree")
+  name      String
+  createdAt DateTime       @default(now())
+
+  files SourceFile[]
+
+  @@index([projectId])
 }
 
 // An uploaded reference file — the workspace's "source of truth". Bytes live in the
@@ -53,6 +71,8 @@ model SourceFile {
   id           String   @id @default(cuid())
   projectId    String
   project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folderId     String? // null = workspace root
+  folder       SourceFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
   uploaderId   String? // Member id (not FK'd, so files survive a member removal)
   uploaderName String?
   name         String

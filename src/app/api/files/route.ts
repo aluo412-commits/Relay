@@ -7,7 +7,7 @@ import type { SourceFileDTO } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-type MetaRow = { id: string; name: string; mimeType: string; size: number; description: string | null; uploaderName: string | null; createdAt: Date };
+type MetaRow = { id: string; name: string; mimeType: string; size: number; description: string | null; uploaderName: string | null; folderId: string | null; createdAt: Date };
 function toDTO(f: MetaRow): SourceFileDTO {
   return {
     id: f.id,
@@ -17,21 +17,32 @@ function toDTO(f: MetaRow): SourceFileDTO {
     description: f.description,
     uploaderName: f.uploaderName,
     hasText: isTextLike(f.name, f.mimeType), // derived, so we never load the text column here
+    folderId: f.folderId,
     createdAt: f.createdAt.toISOString(),
   };
 }
 
-// GET /api/files -> the workspace's source files (metadata only; bytes/text excluded).
+// GET /api/files -> the workspace's source tree: files + folders (metadata only).
 export async function GET() {
   try {
     const ctx = await getContext();
     if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    const rows = await prisma.sourceFile.findMany({
-      where: { projectId: ctx.project.id },
-      select: { id: true, name: true, mimeType: true, size: true, description: true, uploaderName: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
+    const [rows, folders] = await Promise.all([
+      prisma.sourceFile.findMany({
+        where: { projectId: ctx.project.id },
+        select: { id: true, name: true, mimeType: true, size: true, description: true, uploaderName: true, folderId: true, createdAt: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.sourceFolder.findMany({
+        where: { projectId: ctx.project.id },
+        select: { id: true, name: true, parentId: true, createdAt: true },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+    return NextResponse.json({
+      files: rows.map(toDTO),
+      folders: folders.map((f) => ({ id: f.id, name: f.name, parentId: f.parentId, createdAt: f.createdAt.toISOString() })),
     });
-    return NextResponse.json({ files: rows.map(toDTO) });
   } catch (err) {
     console.error("files GET error:", err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
@@ -47,6 +58,13 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const file = form.get("file");
     const description = ((form.get("description") as string) || "").trim() || null;
+    const rawFolderId = ((form.get("folderId") as string) || "").trim() || null;
+    // Only accept a folder that belongs to this workspace.
+    let folderId: string | null = null;
+    if (rawFolderId) {
+      const folder = await prisma.sourceFolder.findFirst({ where: { id: rawFolderId, projectId: ctx.project.id }, select: { id: true } });
+      folderId = folder?.id ?? null;
+    }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
@@ -64,6 +82,7 @@ export async function POST(req: NextRequest) {
     const created = await prisma.sourceFile.create({
       data: {
         projectId: ctx.project.id,
+        folderId,
         uploaderId: ctx.member.id,
         uploaderName: ctx.member.name,
         name: file.name,
@@ -73,7 +92,7 @@ export async function POST(req: NextRequest) {
         text,
         description,
       },
-      select: { id: true, name: true, mimeType: true, size: true, description: true, uploaderName: true, createdAt: true },
+      select: { id: true, name: true, mimeType: true, size: true, description: true, uploaderName: true, folderId: true, createdAt: true },
     });
 
     return NextResponse.json({ file: toDTO(created) });

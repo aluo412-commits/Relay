@@ -23,6 +23,7 @@ import type {
   SyncItem,
   QuestionDTO,
   SourceFileDTO,
+  SourceFolderDTO,
 } from "@/lib/types";
 
 type Detail = { kind: "task"; data: TaskDTO } | { kind: "update"; data: UpdateDTO };
@@ -214,6 +215,7 @@ export default function RelayApp() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [wsAction, setWsAction] = useState<null | "new" | "join">(null);
   const [sourceFiles, setSourceFiles] = useState<SourceFileDTO[]>([]);
+  const [sourceFolders, setSourceFolders] = useState<SourceFolderDTO[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   // Files attached to the next chat message: already committed to Sources, waiting
@@ -368,7 +370,7 @@ export default function RelayApp() {
       if (c && !c.error) setCompactions(c.entries ?? []);
       if (sy && !sy.error) setSyncItems(sy.items ?? []);
       if (qs && !qs.error) setQuestions(qs.questions ?? []);
-      if (fl && !fl.error) setSourceFiles(fl.files ?? []);
+      if (fl && !fl.error) { setSourceFiles(fl.files ?? []); setSourceFolders(fl.folders ?? []); }
 
       // Proactive speak-up: after the feed is read, let Relay initiate in chat for
       // the top urgent+actionable item (deduped server-side so it never repeats).
@@ -974,7 +976,7 @@ export default function RelayApp() {
     }
   }
 
-  async function uploadFiles(fileList: FileList | null) {
+  async function uploadFiles(fileList: FileList | null, folderId: string | null = null) {
     if (!fileList || fileList.length === 0) return;
     setUploading(true);
     setError(null);
@@ -982,6 +984,7 @@ export default function RelayApp() {
       for (const file of Array.from(fileList)) {
         const fd = new FormData();
         fd.append("file", file);
+        if (folderId) fd.append("folderId", folderId);
         const res = await fetch("/api/files", { method: "POST", body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Couldn't upload ${file.name}`);
@@ -1003,6 +1006,101 @@ export default function RelayApp() {
       showToast("Removed from Sources");
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  // --- Source tree: folders + move/rename ---
+
+  async function createFolder(name: string, parentId: string | null) {
+    const clean = name.trim();
+    if (!clean) return;
+    try {
+      const res = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean, parentId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't create folder");
+      setSourceFolders((prev) => [...prev, data.folder]);
+      showToast("Folder created");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function renameFolder(id: string, name: string) {
+    const clean = name.trim();
+    if (!clean) return;
+    setSourceFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name: clean } : f)));
+    try {
+      await fetch(`/api/folders/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: clean }) });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function deleteFolder(id: string) {
+    // Remove the folder and its whole subtree from local state (server cascades).
+    const subtree = new Set<string>([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const f of sourceFolders) {
+        if (f.parentId && subtree.has(f.parentId) && !subtree.has(f.id)) { subtree.add(f.id); grew = true; }
+      }
+    }
+    setSourceFolders((prev) => prev.filter((f) => !subtree.has(f.id)));
+    setSourceFiles((prev) => prev.filter((f) => !(f.folderId && subtree.has(f.folderId))));
+    try {
+      const res = await fetch(`/api/folders/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error || "Couldn't delete folder");
+      showToast("Folder deleted");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function moveNode(kind: "file" | "folder", id: string, targetFolderId: string | null) {
+    if (kind === "folder") {
+      if (id === targetFolderId) return;
+      setSourceFolders((prev) => prev.map((f) => (f.id === id ? { ...f, parentId: targetFolderId } : f)));
+      try {
+        const res = await fetch(`/api/folders/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parentId: targetFolderId }) });
+        if (!res.ok) throw new Error((await res.json()).error || "Couldn't move folder");
+      } catch (e) {
+        setError((e as Error).message);
+        refreshSources();
+      }
+    } else {
+      setSourceFiles((prev) => prev.map((f) => (f.id === id ? { ...f, folderId: targetFolderId } : f)));
+      try {
+        const res = await fetch(`/api/files/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderId: targetFolderId }) });
+        if (!res.ok) throw new Error((await res.json()).error || "Couldn't move file");
+      } catch (e) {
+        setError((e as Error).message);
+        refreshSources();
+      }
+    }
+  }
+
+  async function renameSourceFile(id: string, name: string) {
+    const clean = name.trim();
+    if (!clean) return;
+    setSourceFiles((prev) => prev.map((f) => (f.id === id ? { ...f, name: clean } : f)));
+    try {
+      await fetch(`/api/files/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: clean }) });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function refreshSources() {
+    try {
+      const r = await fetch("/api/files").then((res) => res.json());
+      if (!r.error) { setSourceFiles(r.files ?? []); setSourceFolders(r.folders ?? []); }
+    } catch {
+      /* non-critical */
     }
   }
 
@@ -2530,9 +2628,15 @@ export default function RelayApp() {
       {filesOpen && (
         <SourcesModal
           files={sourceFiles}
+          folders={sourceFolders}
           uploading={uploading}
           onUpload={uploadFiles}
           onDelete={deleteSourceFile}
+          onCreateFolder={createFolder}
+          onRenameFolder={renameFolder}
+          onDeleteFolder={deleteFolder}
+          onRenameFile={renameSourceFile}
+          onMove={moveNode}
           onClose={() => setFilesOpen(false)}
         />
       )}
@@ -3984,81 +4088,225 @@ function fmtBytes(n: number): string {
 
 function SourcesModal({
   files,
+  folders,
   uploading,
   onUpload,
   onDelete,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onRenameFile,
+  onMove,
   onClose,
 }: {
   files: SourceFileDTO[];
+  folders: SourceFolderDTO[];
   uploading: boolean;
-  onUpload: (fl: FileList | null) => void;
+  onUpload: (fl: FileList | null, folderId: string | null) => void;
   onDelete: (id: string) => void;
+  onCreateFolder: (name: string, parentId: string | null) => void;
+  onRenameFolder: (id: string, name: string) => void;
+  onDeleteFolder: (id: string) => void;
+  onRenameFile: (id: string, name: string) => void;
+  onMove: (kind: "file" | "folder", id: string, targetFolderId: string | null) => void;
   onClose: () => void;
 }) {
-  const [drag, setDrag] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(folders.map((f) => f.id)));
+  const [selected, setSelected] = useState<string | null>(null); // upload/create target folder
+  const [renaming, setRenaming] = useState<{ kind: "file" | "folder"; id: string } | null>(null);
+  const [renameText, setRenameText] = useState("");
+  const [creatingIn, setCreatingIn] = useState<string | null | undefined>(undefined); // undefined = not creating
+  const [newName, setNewName] = useState("");
+  const [dragOver, setDragOver] = useState<string | null>(null); // folder id or "root"
+  const dragRef = useRef<{ kind: "file" | "folder"; id: string } | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+
+  const foldersOf = (parentId: string | null) =>
+    folders.filter((f) => f.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
+  const filesOf = (folderId: string | null) =>
+    files.filter((f) => f.folderId === folderId).sort((a, b) => a.name.localeCompare(b.name));
+
+  const pathOf = (id: string | null): string => {
+    if (!id) return "Sources";
+    const parts: string[] = [];
+    let cur = folders.find((f) => f.id === id);
+    let guard = 0;
+    while (cur && guard++ < 20) {
+      parts.unshift(cur.name);
+      const pid = cur.parentId;
+      cur = pid ? folders.find((f) => f.id === pid) : undefined;
+    }
+    return "Sources / " + parts.join(" / ");
+  };
+
+  const toggle = (id: string) =>
+    setExpanded((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const startRename = (kind: "file" | "folder", id: string, name: string) => {
+    setRenaming({ kind, id });
+    setRenameText(name);
+  };
+  const commitRename = () => {
+    if (renaming && renameText.trim()) {
+      if (renaming.kind === "folder") onRenameFolder(renaming.id, renameText);
+      else onRenameFile(renaming.id, renameText);
+    }
+    setRenaming(null);
+    setRenameText("");
+  };
+  const commitCreate = () => {
+    if (newName.trim()) onCreateFolder(newName, creatingIn ?? null);
+    setCreatingIn(undefined);
+    setNewName("");
+  };
+
+  const onDropInto = (target: string | null) => {
+    setDragOver(null);
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d) return;
+    if (d.kind === "folder" && d.id === target) return;
+    onMove(d.kind, d.id, target);
+  };
+
+  function renderFolder(folder: SourceFolderDTO, depth: number) {
+    const open = expanded.has(folder.id);
+    const isRenaming = renaming?.kind === "folder" && renaming.id === folder.id;
+    return (
+      <div key={folder.id}>
+        <div
+          className={"tree-row folder" + (selected === folder.id ? " sel" : "") + (dragOver === folder.id ? " drop" : "")}
+          style={{ paddingLeft: 8 + depth * 16 }}
+          draggable={!isRenaming}
+          onDragStart={() => (dragRef.current = { kind: "folder", id: folder.id })}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(folder.id); }}
+          onDragLeave={() => setDragOver((d) => (d === folder.id ? null : d))}
+          onDrop={(e) => { e.preventDefault(); onDropInto(folder.id); }}
+          onClick={() => { setSelected(folder.id); toggle(folder.id); }}
+        >
+          <span className={"tree-caret" + (open ? " open" : "")}>
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </span>
+          <span className="tree-icon folder">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.2 1.4h5.6A1.5 1.5 0 0 1 14 5.9v5.1A1.5 1.5 0 0 1 12.5 12.5h-9A1.5 1.5 0 0 1 2 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg>
+          </span>
+          {isRenaming ? (
+            <input
+              className="tree-rename"
+              value={renameText}
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setRenameText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenaming(null); }}
+              onBlur={commitRename}
+            />
+          ) : (
+            <span className="tree-name">{folder.name}</span>
+          )}
+          <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
+            <button className="tree-act" title="New subfolder" onClick={() => { setExpanded((s) => new Set(s).add(folder.id)); setCreatingIn(folder.id); setNewName(""); }}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 4v8M4 8h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+            </button>
+            <button className="tree-act" title="Rename" onClick={() => startRename("folder", folder.id, folder.name)}><IconEdit /></button>
+            <button className="tree-act danger" title="Delete folder and contents" onClick={() => { if (window.confirm(`Delete "${folder.name}" and everything inside it?`)) onDeleteFolder(folder.id); }}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6.5 4V3h3v1M5 4.5 5.5 13h5L11 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </span>
+        </div>
+        {open && (
+          <>
+            {creatingIn === folder.id && (
+              <div className="tree-row creating" style={{ paddingLeft: 8 + (depth + 1) * 16 }}>
+                <span className="tree-icon folder"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.2 1.4h5.6A1.5 1.5 0 0 1 14 5.9v5.1A1.5 1.5 0 0 1 12.5 12.5h-9A1.5 1.5 0 0 1 2 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg></span>
+                <input className="tree-rename" placeholder="Folder name…" value={newName} autoFocus onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commitCreate(); if (e.key === "Escape") setCreatingIn(undefined); }} onBlur={commitCreate} />
+              </div>
+            )}
+            {foldersOf(folder.id).map((c) => renderFolder(c, depth + 1))}
+            {filesOf(folder.id).map((f) => renderFile(f, depth + 1))}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function renderFile(f: SourceFileDTO, depth: number) {
+    const isRenaming = renaming?.kind === "file" && renaming.id === f.id;
+    return (
+      <div
+        key={f.id}
+        className="tree-row file"
+        style={{ paddingLeft: 8 + depth * 16 }}
+        draggable={!isRenaming}
+        onDragStart={() => (dragRef.current = { kind: "file", id: f.id })}
+      >
+        <span className="tree-caret" />
+        <span className={"tree-icon file" + (f.hasText ? " readable" : "")}>{(f.name.split(".").pop() || "?").slice(0, 4).toUpperCase()}</span>
+        {isRenaming ? (
+          <input className="tree-rename" value={renameText} autoFocus onChange={(e) => setRenameText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenaming(null); }} onBlur={commitRename} />
+        ) : (
+          <a className="tree-name link" href={`/api/files/${f.id}`} download title={`${fmtBytes(f.size)}${f.uploaderName ? " · " + f.uploaderName : ""}${f.hasText ? " · readable by Relay" : " · file only"}`}>{f.name}</a>
+        )}
+        <span className="tree-meta">{fmtBytes(f.size)}</span>
+        <span className="tree-actions">
+          <button className="tree-act" title="Rename" onClick={() => startRename("file", f.id, f.name)}><IconEdit /></button>
+          <a className="tree-act" title="Download" href={`/api/files/${f.id}`} download><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2v7m0 0 3-3m-3 3L5 6M3 13h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg></a>
+          <button className="tree-act danger" title="Remove" onClick={() => onDelete(f.id)}><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg></button>
+        </span>
+      </div>
+    );
+  }
+
+  const empty = folders.length === 0 && files.length === 0;
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal sources-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-head">
-          <span className="modal-kind">Sources · source of truth</span>
+          <span className="modal-kind">Sources · file tree</span>
           <button className="modal-x" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="modal-body">
           <p className="sources-intro">
-            Upload the reference files your team treats as canonical. Relay reads text files (<code>.md</code>,{" "}
-            <code>.txt</code>, <code>.csv</code>, code…) and uses them as authoritative context. Max 4&nbsp;MB per file.
+            Your team&apos;s canonical files, organized in folders. Relay reads text files (<code>.md</code>, <code>.txt</code>, <code>.csv</code>, code…) as authoritative context, and knows the folder path of each. Drag to move · max 4&nbsp;MB per file.
           </p>
-          <div
-            className={`dropzone${drag ? " over" : ""}${uploading ? " busy" : ""}`}
-            onClick={() => !uploading && inputRef.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDrag(true);
-            }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDrag(false);
-              onUpload(e.dataTransfer.files);
-            }}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                onUpload(e.target.files);
-                e.target.value = "";
-              }}
-            />
-            {uploading ? "Uploading…" : <><b>Click to upload</b> or drop files here</>}
-          </div>
-          {files.length ? (
-            <div className="sources-list">
-              {files.map((f) => (
-                <div key={f.id} className="source-item">
-                  <span className="source-ext">{(f.name.split(".").pop() || "?").slice(0, 4).toUpperCase()}</span>
-                  <div className="source-main">
-                    <a className="source-name" href={`/api/files/${f.id}`} download>
-                      {f.name}
-                    </a>
-                    <div className="source-meta">
-                      {fmtBytes(f.size)}
-                      {f.uploaderName ? ` · ${f.uploaderName}` : ""}
-                      {f.hasText ? " · readable by Relay" : " · file only"}
-                    </div>
-                  </div>
-                  <button className="source-del" onClick={() => onDelete(f.id)} title="Remove" aria-label="Remove">
-                    ✕
-                  </button>
-                </div>
-              ))}
+
+          <div className="tree-toolbar">
+            <span className="tree-loc">Adding to <b>{pathOf(selected)}</b></span>
+            <div className="tree-tools">
+              <button className="tree-tool" onClick={() => { setCreatingIn(selected); setNewName(""); if (selected) setExpanded((s) => new Set(s).add(selected)); }}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.2 1.4h5.6A1.5 1.5 0 0 1 14 5.9v5.1A1.5 1.5 0 0 1 12.5 12.5h-9A1.5 1.5 0 0 1 2 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg>
+                New folder
+              </button>
+              <button className="tree-tool primary" onClick={() => !uploading && uploadRef.current?.click()} disabled={uploading}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 11V3m0 0L5 6m3-3 3 3M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                {uploading ? "Uploading…" : "Upload"}
+              </button>
+              <input ref={uploadRef} type="file" multiple hidden onChange={(e) => { onUpload(e.target.files, selected); e.target.value = ""; }} />
             </div>
-          ) : (
-            <p className="sources-empty">No sources yet — add the docs your team keeps coming back to.</p>
-          )}
+          </div>
+
+          <div
+            className={"tree" + (dragOver === "root" ? " drop-root" : "")}
+            onClick={() => setSelected(null)}
+            onDragOver={(e) => { e.preventDefault(); setDragOver("root"); }}
+            onDragLeave={() => setDragOver((d) => (d === "root" ? null : d))}
+            onDrop={(e) => { e.preventDefault(); onDropInto(null); }}
+          >
+            {creatingIn === null && (
+              <div className="tree-row creating" style={{ paddingLeft: 8 }}>
+                <span className="tree-icon folder"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.2 1.4h5.6A1.5 1.5 0 0 1 14 5.9v5.1A1.5 1.5 0 0 1 12.5 12.5h-9A1.5 1.5 0 0 1 2 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg></span>
+                <input className="tree-rename" placeholder="Folder name…" value={newName} autoFocus onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commitCreate(); if (e.key === "Escape") setCreatingIn(undefined); }} onBlur={commitCreate} />
+              </div>
+            )}
+            {foldersOf(null).map((f) => renderFolder(f, 0))}
+            {filesOf(null).map((f) => renderFile(f, 0))}
+            {empty && <p className="sources-empty">No sources yet — make a folder or upload the docs your team keeps coming back to.</p>}
+          </div>
         </div>
       </div>
     </div>
