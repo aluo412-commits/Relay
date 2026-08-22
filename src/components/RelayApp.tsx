@@ -70,6 +70,22 @@ const IconRegen = () => (
   </svg>
 );
 
+// Compact relative time for workstream cards ("now", "2h", "3d", "1w").
+function relTime(iso?: string | null): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return "now";
+  const m = s / 60;
+  if (m < 60) return `${Math.floor(m)}m`;
+  const h = m / 60;
+  if (h < 24) return `${Math.floor(h)}h`;
+  const d = h / 24;
+  if (d < 7) return `${Math.floor(d)}d`;
+  return `${Math.floor(d / 7)}w`;
+}
+
 function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 200) + "px";
@@ -1834,8 +1850,9 @@ export default function RelayApp() {
                   </span>
                   {b.summary ? <span className="stream-summary">{b.summary}</span> : null}
                   <span className="stream-stats">
+                    {b.id === activeBoardId ? <span className="live-dot" /> : null}
                     <span className="stream-meta">
-                      {b.openCount} open{b.openCount === 1 ? "" : ""} · {b.tasks.length} task{b.tasks.length === 1 ? "" : "s"}
+                      {b.openCount} open{b.lastActivityAt ? ` · ${relTime(b.lastActivityAt)}` : ""}
                     </span>
                   </span>
                 </span>
@@ -1847,16 +1864,48 @@ export default function RelayApp() {
       <div className="panes">
         {/* WORKSPACE */}
         <section className="workspace">
-          <div className="ws-head">
-            <span className="badge">
-              <RelayGlyph />
-            </span>
-            <div className="t">
-              Relay
-              <span>
-                {mode === "log" ? "team log · Relay quietly syncs it" : "coaching chat · private to " + currentMember.name}
-              </span>
-            </div>
+          <div className="conv-bar">
+            {mode === "chat" ? (
+              <>
+                <button
+                  className="conv-toggle"
+                  onClick={() => setConvListOpen((o) => !o)}
+                  title="Conversations"
+                >
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                  <span className="conv-current">
+                    {conversations.find((c) => c.id === conversationId)?.title ?? "New chat"}
+                  </span>
+                  <svg className="conv-chevron" width="11" height="11" viewBox="0 0 16 16" fill="none">
+                    <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <div className="conv-search">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
+                    <path d="m11 11 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  </svg>
+                  <input
+                    value={chatQuery}
+                    onChange={(e) => setChatQuery(e.target.value)}
+                    placeholder="Search this chat…"
+                    aria-label="Search this conversation"
+                  />
+                  {chatQuery ? (
+                    <button className="conv-search-x" onClick={() => setChatQuery("")} aria-label="Clear search">
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+                <button className="conv-new" onClick={newConversation} title="Start a new chat">
+                  ＋ New
+                </button>
+              </>
+            ) : (
+              <span className="conv-loglabel">Team log · Relay quietly syncs the board</span>
+            )}
             <div className="mode-toggle">
               <button className={mode === "chat" ? "on" : ""} onClick={() => setMode("chat")}>
                 Ask Relay
@@ -1869,42 +1918,6 @@ export default function RelayApp() {
 
           {error && <div className="banner">{error}</div>}
 
-          {mode === "chat" && (
-            <div className="conv-bar">
-              <button
-                className="conv-toggle"
-                onClick={() => setConvListOpen((o) => !o)}
-                title="Conversations"
-              >
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                  <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-                <span className="conv-current">
-                  {conversations.find((c) => c.id === conversationId)?.title ?? "New chat"}
-                </span>
-              </button>
-              <div className="conv-search">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
-                  <path d="m11 11 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                </svg>
-                <input
-                  value={chatQuery}
-                  onChange={(e) => setChatQuery(e.target.value)}
-                  placeholder="Search this chat…"
-                  aria-label="Search this conversation"
-                />
-                {chatQuery ? (
-                  <button className="conv-search-x" onClick={() => setChatQuery("")} aria-label="Clear search">
-                    ×
-                  </button>
-                ) : null}
-              </div>
-              <button className="conv-new" onClick={newConversation} title="Start a new chat">
-                ＋ New
-              </button>
-            </div>
-          )}
           {mode === "chat" && convListOpen && (
             <div className="conv-list">
               {conversations.length === 0 ? (

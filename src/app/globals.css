@@ -1004,6 +1004,9 @@ button { font-family: inherit; }
 .stream-ring { width: 30px; height: 30px; }
 .stream-ring::after { width: 23px; height: 23px; }
 .rail-boards { text-align: left; }
+.conv-chevron { color: var(--faint); margin-left: 2px; flex: none; }
+.conv-loglabel { flex: 1; font-size: 0.82rem; color: var(--muted); }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ai); box-shadow: 0 0 0 3px var(--ai-soft); flex: none; }
 
 /* ===== Sources file tree ===== */
 .tree-toolbar { display: flex; align-items: center; gap: 10px; margin: 14px 0 8px; }
