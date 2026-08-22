@@ -160,6 +160,9 @@ export default function RelayApp() {
   const [sourceFiles, setSourceFiles] = useState<SourceFileDTO[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Files attached to the next chat message: already committed to Sources, waiting
+  // to be sent so the agent analyzes them in that turn.
+  const [pendingAttachments, setPendingAttachments] = useState<SourceFileDTO[]>([]);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -199,6 +202,7 @@ export default function RelayApp() {
   const [flash, setFlash] = useState<string[]>([]);
   const streamRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const attachInputRef = useRef<HTMLInputElement>(null);
 
   const currentMember = state?.members.find((m) => m.id === memberId);
   const activeWs =
@@ -450,21 +454,30 @@ export default function RelayApp() {
 
   async function send(textArg?: string) {
     const text = (textArg ?? input).trim();
-    if (!text || sending || !memberId) return;
+    // Attachments (from the composer) may only ride along with a fresh message, not a
+    // quick-reply/template send that passes textArg.
+    const attachments = textArg === undefined ? pendingAttachments : [];
+    if ((!text && attachments.length === 0) || sending || !memberId) return;
     setInput("");
+    setPendingAttachments([]);
     if (inputRef.current) inputRef.current.style.height = "auto";
     setError(null);
+    const attachedFileIds = attachments.map((f) => f.id);
+    const attachNote = attachments.length
+      ? `\n\n[Attached files: ${attachments.map((f) => f.name).join(", ")}]`
+      : "";
+    const displayText = (text || (attachments.length ? "Please analyze the attached file(s)." : "")) + attachNote;
     // drop stale suggestions from the previous assistant turn
     setMessages((m) => [
       ...m.map((x) => (x.role === "assistant" ? { ...x, suggestions: undefined } : x)),
-      { role: "user", content: text, createdAt: new Date().toISOString() },
+      { role: "user", content: displayText, createdAt: new Date().toISOString() },
     ]);
     setSending(true);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberId, message: text, boardId: activeBoardId }),
+        body: JSON.stringify({ memberId, message: text, boardId: activeBoardId, attachedFileIds }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Request failed");
@@ -576,6 +589,29 @@ export default function RelayApp() {
   }
 
   // --- Source-of-truth files ---
+
+  // Attach files to the pending message: upload (commit to Sources) right away, then
+  // stage them as chips so the next send tells the agent to analyze them.
+  async function attachToMessage(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of Array.from(fileList)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/files", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Couldn't attach ${file.name}`);
+        setSourceFiles((prev) => [data.file, ...prev]);
+        setPendingAttachments((prev) => [...prev, data.file]);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function uploadFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -1539,7 +1575,48 @@ export default function RelayApp() {
               ) : null}
             </div>
           ) : null}
+          {pendingAttachments.length > 0 || uploading ? (
+            <div className="attach-row">
+              {pendingAttachments.map((f) => (
+                <span key={f.id} className="attach-chip" title={f.name}>
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                    <path d="M9.5 4.5 5 9a1.5 1.5 0 0 0 2 2l4.5-4.5a3 3 0 0 0-4-4L3.2 6.8A4.5 4.5 0 0 0 9.6 13l2.9-2.9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="attach-name">{f.name}</span>
+                  <button
+                    className="attach-x"
+                    onClick={() => setPendingAttachments((p) => p.filter((x) => x.id !== f.id))}
+                    aria-label={`Remove ${f.name}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {uploading ? <span className="attach-chip loading">Uploading…</span> : null}
+            </div>
+          ) : null}
           <div className="composer">
+            <input
+              ref={attachInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                attachToMessage(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <button
+              className="attach-btn"
+              onClick={() => attachInputRef.current?.click()}
+              disabled={uploading || sending}
+              aria-label="Attach files"
+              title="Attach files — Relay analyzes them and saves them to Sources"
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <path d="M9.5 4.5 5 9a1.5 1.5 0 0 0 2 2l4.5-4.5a3 3 0 0 0-4-4L3.2 6.8A4.5 4.5 0 0 0 9.6 13l2.9-2.9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
             <textarea
               ref={inputRef}
               value={input}
@@ -1556,7 +1633,12 @@ export default function RelayApp() {
               placeholder={`Tell Relay what you did, ${currentMember.name}…`}
               rows={1}
             />
-            <button className="send" onClick={() => send()} disabled={sending || !input.trim()} aria-label="Send">
+            <button
+              className="send"
+              onClick={() => send()}
+              disabled={sending || uploading || (!input.trim() && pendingAttachments.length === 0)}
+              aria-label="Send"
+            >
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
                 <path d="M2 8h10M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>

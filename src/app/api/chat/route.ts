@@ -5,7 +5,7 @@ import { buildSystemPrompt } from "@/lib/prompts";
 import { runAgentTurn, selectRelevantCompactions } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
 import { createQuestion } from "@/lib/questions";
-import { loadSourceContext } from "@/lib/files";
+import { loadSourceContext, loadAttachedContext } from "@/lib/files";
 import { getContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -19,19 +19,39 @@ export async function POST(req: NextRequest) {
     if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     const memberId = ctx.member.id;
 
-    const { message, boardId } = (await req.json()) as { message?: string; boardId?: string };
-    if (!message?.trim()) {
+    const { message, boardId, attachedFileIds } = (await req.json()) as {
+      message?: string;
+      boardId?: string;
+      attachedFileIds?: string[];
+    };
+    const attachIds = Array.isArray(attachedFileIds)
+      ? attachedFileIds.filter((x): x is string => typeof x === "string")
+      : [];
+    const trimmed = message?.trim() ?? "";
+    if (!trimmed && attachIds.length === 0) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
     const state = await loadState(ctx.project.id);
     const member = ctx.member;
 
+    // Load any files attached to this message (already committed to Sources by the
+    // client). Their content is injected below so the agent analyzes them now.
+    const attached = await loadAttachedContext(state.project.id, attachIds);
+    // A bare attachment (no typed text) still needs a directive for the agent.
+    const userText =
+      trimmed || (attached.names.length ? "Please analyze the attached file(s)." : "");
+    // The stored/displayed message notes attachments so the thread has context and
+    // the agent's history reflects what was sent.
+    const storedContent = attached.names.length
+      ? `${userText}\n\n[Attached files: ${attached.names.join(", ")}]`
+      : userText;
+
     const chatBoardId = (state.boards.find((b) => b.id === boardId) ?? state.boards[0])?.id ?? null;
 
     // Persist the user's message, scoped to the active workstream.
     await prisma.message.create({
-      data: { projectId: state.project.id, memberId, boardId: chatBoardId, role: "user", content: message.trim() },
+      data: { projectId: state.project.id, memberId, boardId: chatBoardId, role: "user", content: storedContent },
     });
 
     // Build history from this member's chat thread FOR THIS WORKSTREAM.
@@ -58,7 +78,7 @@ export async function POST(req: NextRequest) {
     });
     if (compactions.length) {
       const relevantIds = await selectRelevantCompactions(
-        message.trim(),
+        userText,
         compactions.map((c) => ({ id: c.id, heading: c.heading, summary: c.summary })),
         state.project.model
       );
@@ -71,7 +91,8 @@ export async function POST(req: NextRequest) {
     }
 
     const sources = await loadSourceContext(state.project.id);
-    const systemPrompt = buildSystemPrompt(state, activeBoard, member.name) + sources + recalled;
+    const systemPrompt =
+      buildSystemPrompt(state, activeBoard, member.name) + sources + recalled + attached.block;
     const result = await runAgentTurn(systemPrompt, history, state.project.model);
 
     // Persist Relay's visible reply (store just the reply text so history stays clean).
@@ -84,7 +105,7 @@ export async function POST(req: NextRequest) {
       data: {
         memberName: member.name,
         boardName: activeBoard.name,
-        userMessage: message.trim(),
+        userMessage: storedContent,
         toolCalls: JSON.stringify(result.rawToolCalls ?? []),
         reply: result.reply,
       },

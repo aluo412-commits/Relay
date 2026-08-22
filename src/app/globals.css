@@ -327,6 +327,16 @@ button { font-family: inherit; }
 .composer textarea:focus { border-color: var(--ai); outline: none; }
 .composer .send { border: none; background: var(--accent); color: var(--accent-ink); width: 40px; height: 40px; border-radius: 11px; cursor: pointer; display: grid; place-items: center; flex: none; }
 .composer .send:disabled { opacity: 0.4; cursor: default; }
+.composer .attach-btn { border: 1px solid var(--border); background: var(--surface); color: var(--muted); width: 40px; height: 40px; border-radius: 11px; cursor: pointer; display: grid; place-items: center; flex: none; }
+.composer .attach-btn:hover:not(:disabled) { color: var(--ai); border-color: var(--ai); }
+.composer .attach-btn:disabled { opacity: 0.4; cursor: default; }
+.attach-row { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px 0; background: var(--bg); }
+.attach-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 6px 4px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: 0.78rem; color: var(--text); }
+.attach-chip svg { color: var(--ai); flex: none; }
+.attach-chip.loading { color: var(--muted); padding: 4px 11px; font-family: var(--font-mono); }
+.attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-x { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0 2px; border-radius: 50%; }
+.attach-x:hover { color: var(--bad); }
 
 /* buttons */
 .btn { font-size: 0.86rem; font-weight: 650; border-radius: 9px; padding: 8px 15px; border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: transform 0.1s, filter 0.15s, background 0.15s, border-color 0.15s; }
