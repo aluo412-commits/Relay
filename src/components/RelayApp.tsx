@@ -103,10 +103,29 @@ interface UIMessage {
   createdAt?: string;
   feedback?: number; // thumbs: -1 down, 1 up (assistant messages)
   truncated?: boolean; // the model hit the token cap — offer "Continue"
+  streaming?: boolean; // currently being filled in token-by-token
 }
 
 // A named chat thread in the member's private workspace, scoped to a workstream.
 type ConversationDTO = { id: string; title: string; boardId: string | null; updatedAt: string };
+
+// The final event of a streamed chat turn.
+type StreamDone = {
+  turn: { reply: string; stage?: string; questions?: string[]; suggestions?: string[] };
+  messageId: string;
+  userMessageId?: string | null;
+  conversationId?: string;
+  append?: boolean;
+  truncated?: boolean;
+  drafts?: DraftPayload[];
+  artifacts?: ArtifactDTO[];
+  asked?: number;
+  state?: ProjectState;
+};
+type StreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "error"; error: string }
+  | ({ type: "done" } & StreamDone);
 
 // A free-floating window. Two flavors:
 //  • a finished ARTIFACT the agent produced (a markdown document / posted record) —
@@ -212,6 +231,9 @@ export default function RelayApp() {
   // In-conversation search + scroll affordance.
   const [chatQuery, setChatQuery] = useState("");
   const [atBottom, setAtBottom] = useState(true);
+  // Streaming state + the controller that lets "Stop" abort the current turn.
+  const [streaming, setStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -646,10 +668,42 @@ export default function RelayApp() {
     }
 
     setSending(true);
+    setStreaming(false);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    // Continue mode appends onto the existing last assistant bubble.
+    const base = cont ? [...messages].reverse().find((x) => x.role === "assistant")?.content ?? "" : "";
+    let acc = "";
+
+    const applyDelta = (delta: string) => {
+      acc += delta;
+      setStreaming(true);
+      setMessages((m) => {
+        const c = [...m];
+        if (cont) {
+          for (let i = c.length - 1; i >= 0; i--) {
+            if (c[i].role === "assistant") {
+              c[i] = { ...c[i], content: `${base}\n\n${acc}`.trim(), streaming: true };
+              break;
+            }
+          }
+        } else {
+          const last = c[c.length - 1];
+          if (last && last.role === "assistant" && last.streaming) {
+            c[c.length - 1] = { ...last, content: acc };
+          } else {
+            c.push({ role: "assistant", content: acc, streaming: true, createdAt: new Date().toISOString() });
+          }
+        }
+        return c;
+      });
+    };
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: ctrl.signal,
         body: JSON.stringify({
           memberId,
           message: text,
@@ -661,8 +715,37 @@ export default function RelayApp() {
           continue: cont,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Request failed");
+      if (!res.ok || !res.body) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Request failed");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let done: StreamDone | null = null;
+      for (;;) {
+        const { value, done: readerDone } = await reader.read();
+        if (readerDone) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let evt: StreamEvent;
+          try {
+            evt = JSON.parse(line) as StreamEvent;
+          } catch {
+            continue;
+          }
+          if (evt.type === "delta") applyDelta(evt.text);
+          else if (evt.type === "error") throw new Error(evt.error);
+          else if (evt.type === "done") done = evt;
+        }
+      }
+      if (!done) throw new Error("The response ended unexpectedly.");
+      const data = done;
       const turn = data.turn;
       if (data.conversationId) setConversationId(data.conversationId);
 
@@ -670,31 +753,34 @@ export default function RelayApp() {
         const c = [...m];
         // Stamp the id onto the newest un-id'd user bubble (needed for edit).
         if (data.userMessageId) {
+          const uid = data.userMessageId;
           for (let i = c.length - 1; i >= 0; i--) {
             if (c[i].role === "user" && !c[i].id) {
-              c[i] = { ...c[i], id: data.userMessageId };
+              c[i] = { ...c[i], id: uid };
               break;
             }
           }
         }
-        if (cont) {
-          for (let i = c.length - 1; i >= 0; i--) {
-            if (c[i].role === "assistant") {
-              c[i] = { ...c[i], id: data.messageId, content: `${c[i].content}\n\n${turn.reply}`.trim(), truncated: !!data.truncated };
-              break;
-            }
+        const finalContent = cont ? `${base}\n\n${turn.reply}`.trim() : turn.reply;
+        let li = -1;
+        for (let i = c.length - 1; i >= 0; i--) {
+          if (c[i].role === "assistant") {
+            li = i;
+            break;
           }
-        } else {
-          c.push({
-            id: data.messageId,
-            role: "assistant",
-            content: turn.reply,
-            questions: turn.questions?.length ? turn.questions : undefined,
-            suggestions: turn.suggestions?.length ? turn.suggestions : undefined,
-            createdAt: new Date().toISOString(),
-            truncated: !!data.truncated,
-          });
         }
+        const finalized: UIMessage = {
+          id: data.messageId,
+          role: "assistant",
+          content: finalContent,
+          questions: turn.questions?.length ? turn.questions : undefined,
+          suggestions: turn.suggestions?.length ? turn.suggestions : undefined,
+          truncated: !!data.truncated,
+          streaming: false,
+          createdAt: (li >= 0 ? c[li].createdAt : undefined) ?? new Date().toISOString(),
+        };
+        if (li >= 0 && c[li].streaming) c[li] = { ...c[li], ...finalized };
+        else c.push(finalized);
         return c;
       });
 
@@ -708,10 +794,21 @@ export default function RelayApp() {
       refreshSync();
       loadConvList(activeBoardId);
     } catch (e) {
-      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+      if ((e as Error).name === "AbortError") {
+        // Keep whatever streamed in; just stop the spinner.
+        setMessages((m) => m.map((x) => (x.streaming ? { ...x, streaming: false } : x)));
+      } else {
+        setError((e as Error).message);
+      }
     } finally {
       setSending(false);
+      setStreaming(false);
+      abortRef.current = null;
     }
+  }
+
+  function stopGenerating() {
+    abortRef.current?.abort();
   }
 
   function send(textArg?: string) {
@@ -1947,7 +2044,7 @@ export default function RelayApp() {
               );
             })()}
 
-            {sending && (
+            {sending && !streaming && (
               <div className="msg ai">
                 <span className="av">
                   <RelayGlyph small />
@@ -2075,16 +2172,24 @@ export default function RelayApp() {
               placeholder={`Tell Relay what you did, ${currentMember.name}…`}
               rows={1}
             />
-            <button
-              className="send"
-              onClick={() => send()}
-              disabled={sending || uploading || (!input.trim() && pendingAttachments.length === 0)}
-              aria-label="Send"
-            >
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-                <path d="M2 8h10M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+            {sending ? (
+              <button className="send stop" onClick={stopGenerating} aria-label="Stop generating" title="Stop">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                className="send"
+                onClick={() => send()}
+                disabled={uploading || (!input.trim() && pendingAttachments.length === 0)}
+                aria-label="Send"
+              >
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 8h10M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
           </div>
           </>
           )}

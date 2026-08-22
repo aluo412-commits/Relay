@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadState, proposalsToDrafts, normalizeStatus } from "@/lib/state";
 import { buildSystemPrompt } from "@/lib/prompts";
-import { runAgentTurn, selectRelevantCompactions } from "@/lib/minimax";
+import { runAgentTurnStream, selectRelevantCompactions } from "@/lib/minimax";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
 import { createQuestion } from "@/lib/questions";
 import { loadSourceContext, loadAttachedContext } from "@/lib/files";
@@ -41,9 +41,8 @@ async function resolveConversation(
   return created.id;
 }
 
-// POST /api/chat
+// POST /api/chat  -> streams NDJSON: {type:"delta",text} … then {type:"done", …}.
 // { message?, boardId?, conversationId?, attachedFileIds?, regenerate?, editMessageId?, continue? }
-// Runs one Relay turn for the signed-in member and persists the exchange.
 export async function POST(req: NextRequest) {
   try {
     const ctx = await getContext();
@@ -75,7 +74,6 @@ export async function POST(req: NextRequest) {
     if (!activeBoard) return NextResponse.json({ error: "No board found" }, { status: 404 });
     const chatBoardId = activeBoard.id;
 
-    // Load any files attached to this message (already committed to Sources).
     const attached = await loadAttachedContext(state.project.id, attachIds);
     const userText =
       trimmed || (attached.names.length ? "Please analyze the attached file(s)." : "");
@@ -102,8 +100,7 @@ export async function POST(req: NextRequest) {
     if (body.editMessageId) {
       const idx = convoRows.findIndex((m) => m.id === body.editMessageId);
       if (idx >= 0) {
-        const toDelete = convoRows.slice(idx).map((m) => m.id);
-        await prisma.message.deleteMany({ where: { id: { in: toDelete } } });
+        await prisma.message.deleteMany({ where: { id: { in: convoRows.slice(idx).map((m) => m.id) } } });
         convoRows.length = idx;
       }
     }
@@ -128,7 +125,6 @@ export async function POST(req: NextRequest) {
       userMessageId = created.id;
     }
 
-    // Build history from the (possibly rewound) thread.
     const history = convoRows.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
     if (isContinue) {
       history.push({ role: "user", content: "Continue exactly where you left off. Do not repeat what you already wrote." });
@@ -158,121 +154,139 @@ export async function POST(req: NextRequest) {
     const sources = await loadSourceContext(state.project.id);
     const systemPrompt =
       buildSystemPrompt(state, activeBoard, member.name) + sources + recalled + attached.block;
-    const result = await runAgentTurn(systemPrompt, history, state.project.model);
 
-    // Bump the conversation's updatedAt, and set its title from the first real message
-    // if it's still the default.
-    const convoMeta = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-      select: { title: true },
-    });
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        updatedAt: new Date(),
-        ...(userText && convoMeta?.title === "New chat" ? { title: titleFrom(userText) } : {}),
+    // Stream the turn: delta events as the reply forms, then a single done event.
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const emit = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        try {
+          const result = await runAgentTurnStream(systemPrompt, history, state.project.model, (text) =>
+            emit({ type: "delta", text })
+          );
+
+          // Bump conversation updatedAt + set title from first message if still default.
+          const convoMeta = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { title: true } });
+          await prisma.conversation.update({
+            where: { id: conversationId },
+            data: {
+              updatedAt: new Date(),
+              ...(userText && convoMeta?.title === "New chat" ? { title: titleFrom(userText) } : {}),
+            },
+          });
+
+          // Continue appends to the previous assistant bubble; otherwise a new one.
+          let assistantId: string;
+          if (isContinue) {
+            const lastAssistant = [...convoRows].reverse().find((m) => m.role === "assistant");
+            if (lastAssistant) {
+              const merged = `${lastAssistant.content}\n\n${result.reply}`.trim();
+              await prisma.message.update({ where: { id: lastAssistant.id }, data: { content: merged } });
+              assistantId = lastAssistant.id;
+            } else {
+              const m = await prisma.message.create({
+                data: { projectId: state.project.id, memberId, boardId: chatBoardId, conversationId, role: "assistant", content: result.reply },
+              });
+              assistantId = m.id;
+            }
+          } else {
+            const m = await prisma.message.create({
+              data: { projectId: state.project.id, memberId, boardId: chatBoardId, conversationId, role: "assistant", content: result.reply },
+            });
+            assistantId = m.id;
+          }
+
+          await prisma.agentLog.create({
+            data: {
+              memberName: member.name,
+              boardName: activeBoard.name,
+              userMessage: storedContent || (isContinue ? "[continue]" : "[regenerate]"),
+              toolCalls: JSON.stringify(result.rawToolCalls ?? []),
+              reply: result.reply,
+            },
+          });
+
+          const drafts = proposalsToDrafts(result.proposals, result.syncActions);
+          const docArtifacts = result.documents.map((d) => ({
+            title: d.title,
+            filename: d.filename,
+            markdown: d.markdown,
+            kind: "document" as const,
+          }));
+          const deckArtifacts = await Promise.all(
+            result.presentations.map(async (p) => ({
+              title: p.title,
+              filename: p.filename,
+              markdown: presentationMarkdown(p),
+              kind: "slides" as const,
+              pptxBase64: await buildPptxBase64(p),
+            }))
+          );
+          const artifacts = [...docArtifacts, ...deckArtifacts];
+
+          let askedCount = 0;
+          for (const aq of result.askQuestions) {
+            const everyone = aq.ask.trim().toLowerCase() === "everyone";
+            const names = aq.ask.split(",").map((s) => s.trim()).filter(Boolean);
+            const targets = everyone
+              ? []
+              : state.members.filter((m) => names.some((n) => n.toLowerCase() === m.name.toLowerCase()));
+            if (!everyone && targets.length === 0) continue;
+            const single = targets.length === 1;
+            const branchYes =
+              single && aq.answerType === "yesno" && aq.ifYesTask
+                ? [{ type: "update_task" as const, task: aq.ifYesTask, status: normalizeStatus(aq.ifYesStatus) }]
+                : null;
+            const branchNo =
+              single && aq.answerType === "yesno" && aq.ifNoTask
+                ? [{ type: "update_task" as const, task: aq.ifNoTask, status: normalizeStatus(aq.ifNoStatus) }]
+                : null;
+            await createQuestion({
+              projectId: state.project.id,
+              askerId: memberId,
+              boardId: activeBoard.id,
+              text: aq.text,
+              audience: everyone ? "everyone" : "specific",
+              visibility: aq.visibility,
+              targetIds: targets.map((m) => m.id),
+              answerType: aq.answerType,
+              branchYes,
+              branchNo,
+              askerName: member.name,
+              allMemberIds: state.members.map((m) => m.id),
+            });
+            askedCount++;
+          }
+
+          emit({
+            type: "done",
+            turn: {
+              reply: result.reply,
+              stage: result.stage,
+              questions: result.questions,
+              suggestions: result.suggestions,
+            },
+            messageId: assistantId,
+            userMessageId,
+            conversationId,
+            append: isContinue,
+            truncated: result.finishReason === "length",
+            drafts,
+            artifacts,
+            asked: askedCount,
+            state,
+          });
+        } catch (err) {
+          console.error("chat stream error:", err);
+          emit({ type: "error", error: "Relay couldn't reach the model. " + (err as Error).message });
+        } finally {
+          controller.close();
+        }
       },
     });
 
-    // Continue mode appends to the previous assistant message instead of adding a new bubble.
-    let assistantId: string;
-    if (isContinue) {
-      const lastAssistant = [...convoRows].reverse().find((m) => m.role === "assistant");
-      if (lastAssistant) {
-        const merged = `${lastAssistant.content}\n\n${result.reply}`.trim();
-        await prisma.message.update({ where: { id: lastAssistant.id }, data: { content: merged } });
-        assistantId = lastAssistant.id;
-      } else {
-        const m = await prisma.message.create({
-          data: { projectId: state.project.id, memberId, boardId: chatBoardId, conversationId, role: "assistant", content: result.reply },
-        });
-        assistantId = m.id;
-      }
-    } else {
-      const m = await prisma.message.create({
-        data: { projectId: state.project.id, memberId, boardId: chatBoardId, conversationId, role: "assistant", content: result.reply },
-      });
-      assistantId = m.id;
-    }
-
-    // Full agent-turn log (raw tool calls) for inspectability.
-    await prisma.agentLog.create({
-      data: {
-        memberName: member.name,
-        boardName: activeBoard.name,
-        userMessage: storedContent || (isContinue ? "[continue]" : "[regenerate]"),
-        toolCalls: JSON.stringify(result.rawToolCalls ?? []),
-        reply: result.reply,
-      },
-    });
-
-    const drafts = proposalsToDrafts(result.proposals, result.syncActions);
-    const docArtifacts = result.documents.map((d) => ({
-      title: d.title,
-      filename: d.filename,
-      markdown: d.markdown,
-      kind: "document" as const,
-    }));
-    const deckArtifacts = await Promise.all(
-      result.presentations.map(async (p) => ({
-        title: p.title,
-        filename: p.filename,
-        markdown: presentationMarkdown(p),
-        kind: "slides" as const,
-        pptxBase64: await buildPptxBase64(p),
-      }))
-    );
-    const artifacts = [...docArtifacts, ...deckArtifacts];
-
-    let askedCount = 0;
-    for (const aq of result.askQuestions) {
-      const everyone = aq.ask.trim().toLowerCase() === "everyone";
-      const names = aq.ask.split(",").map((s) => s.trim()).filter(Boolean);
-      const targets = everyone
-        ? []
-        : state.members.filter((m) => names.some((n) => n.toLowerCase() === m.name.toLowerCase()));
-      if (!everyone && targets.length === 0) continue;
-      const single = targets.length === 1;
-      const branchYes =
-        single && aq.answerType === "yesno" && aq.ifYesTask
-          ? [{ type: "update_task" as const, task: aq.ifYesTask, status: normalizeStatus(aq.ifYesStatus) }]
-          : null;
-      const branchNo =
-        single && aq.answerType === "yesno" && aq.ifNoTask
-          ? [{ type: "update_task" as const, task: aq.ifNoTask, status: normalizeStatus(aq.ifNoStatus) }]
-          : null;
-      await createQuestion({
-        projectId: state.project.id,
-        askerId: memberId,
-        boardId: activeBoard.id,
-        text: aq.text,
-        audience: everyone ? "everyone" : "specific",
-        visibility: aq.visibility,
-        targetIds: targets.map((m) => m.id),
-        answerType: aq.answerType,
-        branchYes,
-        branchNo,
-        askerName: member.name,
-        allMemberIds: state.members.map((m) => m.id),
-      });
-      askedCount++;
-    }
-
-    return NextResponse.json({
-      turn: {
-        reply: result.reply,
-        stage: result.stage,
-        questions: result.questions,
-        suggestions: result.suggestions,
-      },
-      messageId: assistantId,
-      userMessageId,
-      conversationId,
-      append: isContinue,
-      drafts,
-      artifacts,
-      asked: askedCount,
-      state,
+    return new Response(stream, {
+      headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
     });
   } catch (err) {
     console.error("chat error:", err);

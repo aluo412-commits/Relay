@@ -327,6 +327,8 @@ button { font-family: inherit; }
 .composer textarea:focus { border-color: var(--ai); outline: none; }
 .composer .send { border: none; background: var(--accent); color: var(--accent-ink); width: 40px; height: 40px; border-radius: 11px; cursor: pointer; display: grid; place-items: center; flex: none; }
 .composer .send:disabled { opacity: 0.4; cursor: default; }
+.composer .send.stop { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); }
+.composer .send.stop:hover { border-color: var(--bad); color: var(--bad); }
 .composer .attach-btn { border: 1px solid var(--border); background: var(--surface); color: var(--muted); width: 40px; height: 40px; border-radius: 11px; cursor: pointer; display: grid; place-items: center; flex: none; }
 .composer .attach-btn:hover:not(:disabled) { color: var(--ai); border-color: var(--ai); }
 .composer .attach-btn:disabled { opacity: 0.4; cursor: default; }

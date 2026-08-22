@@ -36,6 +36,7 @@ export interface AgentResult {
   askQuestions: AgentQuestion[]; // questions to hang on the board and deliver
   syncActions: BoardAction[]; // status changes to APPLY immediately (log mode)
   rawToolCalls: { name: string; arguments: string }[];
+  finishReason?: string | null; // "length" => the reply was cut off (offer "Continue")
 }
 
 // A question the agent decided to hang on the board (from "ask Sam if…" in chat).
@@ -403,30 +404,19 @@ function proposalFromArgs(name: string, a: ToolArgs): AgentProposal | null {
   return null;
 }
 
-// The agent turn: the model may call SEVERAL tools in one response (e.g. log a
-// work record AND spec a follow-up task). We collect every proposal into drafts,
-// plus one coaching/reply message.
-export async function runAgentTurn(
-  systemPrompt: string,
-  history: { role: "user" | "assistant"; content: string }[],
-  model?: string
-): Promise<AgentResult> {
-  const completion = await client.chat.completions.create({
-    model: model || MODEL,
-    temperature: 0.4,
-    max_tokens: 1800,
-    tools: AGENT_TOOLS,
-    tool_choice: "auto",
-    messages: [{ role: "system", content: systemPrompt }, ...history],
-  });
+// Minimal shape both the streaming and non-streaming paths reduce to.
+type ToolCallLike = { function?: { name?: string; arguments?: string } };
 
-  const msg = completion.choices[0]?.message;
-  const calls = msg?.tool_calls ?? [];
-  const rawToolCalls = calls.map((c) => ({
-    name: c?.function?.name ?? "?",
-    arguments: c?.function?.arguments ?? "",
-  }));
-
+/**
+ * Turn a set of tool calls (+ any plain content) into an AgentResult. Shared by the
+ * streaming and non-streaming turns so parsing behaves identically either way.
+ */
+function buildAgentResult(
+  calls: ToolCallLike[],
+  msgContent: string,
+  rawToolCalls: { name: string; arguments: string }[],
+  finishReason: string | null
+): AgentResult {
   const proposals: AgentProposal[] = [];
   const documents: AgentDocument[] = [];
   const presentations: PresentationSpec[] = [];
@@ -441,7 +431,7 @@ export async function runAgentTurn(
     if (!name) continue;
     let a: ToolArgs = {};
     try {
-      a = JSON.parse(call.function.arguments || "{}");
+      a = JSON.parse(call.function?.arguments || "{}");
     } catch {
       continue;
     }
@@ -510,23 +500,23 @@ export async function runAgentTurn(
 
   if (calls.length === 0) {
     // No tool call — recover a plain reply from content.
-    const jsonStr = extractJson(msg?.content ?? "");
+    const jsonStr = extractJson(msgContent);
     if (jsonStr) {
       try {
         const parsed = JSON.parse(jsonStr) as RelayTurn;
         if (parsed.reply) {
-          return { reply: parsed.reply, stage: parsed.stage ?? "coaching", questions: parsed.questions, suggestions: parsed.suggestions, proposals: [], documents: [], presentations: [], askQuestions: [], syncActions: [], rawToolCalls };
+          return { reply: parsed.reply, stage: parsed.stage ?? "coaching", questions: parsed.questions, suggestions: parsed.suggestions, proposals: [], documents: [], presentations: [], askQuestions: [], syncActions: [], rawToolCalls, finishReason };
         }
       } catch {
         /* fall through */
       }
     }
-    const cleaned = (msg?.content ?? "")
+    const cleaned = msgContent
       .replace(/<think>[\s\S]*?<\/think>/gi, "")
       .replace(/<\/?minimax:tool_call>/gi, "")
       .replace(/<\/?message>/gi, "")
       .trim();
-    return { reply: cleaned || "Sorry — could you say that again?", stage: "coaching", proposals: [], documents: [], presentations: [], askQuestions: [], syncActions: [], rawToolCalls };
+    return { reply: cleaned || "Sorry — could you say that again?", stage: "coaching", proposals: [], documents: [], presentations: [], askQuestions: [], syncActions: [], rawToolCalls, finishReason };
   }
 
   const stage: AgentResult["stage"] = proposals.length > 0 ? "proposing" : "coaching";
@@ -540,7 +530,137 @@ export async function runAgentTurn(
     else reply = "Got it.";
   }
 
-  return { reply, stage, questions, suggestions, proposals, documents, presentations, askQuestions, syncActions, rawToolCalls };
+  return { reply, stage, questions, suggestions, proposals, documents, presentations, askQuestions, syncActions, rawToolCalls, finishReason };
+}
+
+// Strip reasoning/tool-call scaffolding for a clean streamed preview.
+function stripScaffold(s: string): string {
+  return s
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*$/gi, "")
+    .replace(/<\/?minimax:tool_call>/gi, "")
+    .replace(/<\/?message>/gi, "")
+    .trimStart();
+}
+
+// Best-effort extract of the (possibly incomplete) "reply" string from a partial
+// tool-call arguments JSON, decoding escapes as they arrive. Returns "" if not begun.
+function extractPartialReply(argsStr: string): string {
+  const key = argsStr.indexOf('"reply"');
+  if (key === -1) return "";
+  let i = argsStr.indexOf(":", key);
+  if (i === -1) return "";
+  i++;
+  while (i < argsStr.length && /\s/.test(argsStr[i])) i++;
+  if (argsStr[i] !== '"') return "";
+  i++; // past the opening quote
+  let out = "";
+  while (i < argsStr.length) {
+    const ch = argsStr[i];
+    if (ch === "\\") {
+      const next = argsStr[i + 1];
+      if (next === undefined) break; // escape not fully arrived yet
+      if (next === "n") out += "\n";
+      else if (next === "t") out += "\t";
+      else if (next === "r") out += "\r";
+      else if (next === '"') out += '"';
+      else if (next === "\\") out += "\\";
+      else if (next === "/") out += "/";
+      else if (next === "u") {
+        const hex = argsStr.slice(i + 2, i + 6);
+        if (hex.length < 4) break;
+        out += String.fromCharCode(parseInt(hex, 16) || 0);
+        i += 4;
+      } else out += next;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') break; // closing quote → reply complete
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+// The agent turn: the model may call SEVERAL tools in one response (e.g. log a
+// work record AND spec a follow-up task). We collect every proposal into drafts,
+// plus one coaching/reply message.
+export async function runAgentTurn(
+  systemPrompt: string,
+  history: { role: "user" | "assistant"; content: string }[],
+  model?: string
+): Promise<AgentResult> {
+  const completion = await client.chat.completions.create({
+    model: model || MODEL,
+    temperature: 0.4,
+    max_tokens: 1800,
+    tools: AGENT_TOOLS,
+    tool_choice: "auto",
+    messages: [{ role: "system", content: systemPrompt }, ...history],
+  });
+  const msg = completion.choices[0]?.message;
+  const calls = msg?.tool_calls ?? [];
+  const rawToolCalls = calls.map((c) => ({ name: c?.function?.name ?? "?", arguments: c?.function?.arguments ?? "" }));
+  return buildAgentResult(calls, msg?.content ?? "", rawToolCalls, completion.choices[0]?.finish_reason ?? null);
+}
+
+/**
+ * Streaming variant: same result, but emits incremental reply text via onDelta as it
+ * arrives (for a ChatGPT-style typewriter). The final AgentResult is authoritative —
+ * the caller should reconcile the streamed preview with result.reply at the end.
+ */
+export async function runAgentTurnStream(
+  systemPrompt: string,
+  history: { role: "user" | "assistant"; content: string }[],
+  model: string | undefined,
+  onDelta: (text: string) => void
+): Promise<AgentResult> {
+  const stream = await client.chat.completions.create({
+    model: model || MODEL,
+    temperature: 0.4,
+    max_tokens: 1800,
+    tools: AGENT_TOOLS,
+    tool_choice: "auto",
+    stream: true,
+    messages: [{ role: "system", content: systemPrompt }, ...history],
+  });
+
+  let content = "";
+  const toolAcc = new Map<number, { name: string; args: string }>();
+  let finishReason: string | null = null;
+  let emitted = "";
+
+  for await (const chunk of stream) {
+    const choice = chunk.choices?.[0];
+    if (!choice) continue;
+    const d = choice.delta as { content?: string | null; tool_calls?: { index?: number; function?: { name?: string; arguments?: string } }[] } | undefined;
+    if (d?.content) content += d.content;
+    if (d?.tool_calls) {
+      for (const tc of d.tool_calls) {
+        const idx = tc.index ?? 0;
+        const cur = toolAcc.get(idx) ?? { name: "", args: "" };
+        if (tc.function?.name) cur.name = tc.function.name;
+        if (tc.function?.arguments) cur.args += tc.function.arguments;
+        toolAcc.set(idx, cur);
+      }
+    }
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+
+    // Build the current best-effort preview: reply from the first tool call, else content.
+    const primary = toolAcc.get(0);
+    let preview = primary ? extractPartialReply(primary.args) : "";
+    if (!preview && content) preview = stripScaffold(content);
+    if (preview.length > emitted.length) {
+      onDelta(preview.slice(emitted.length));
+      emitted = preview;
+    }
+  }
+
+  const calls = [...toolAcc.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, v]) => ({ function: { name: v.name, arguments: v.args } }));
+  const rawToolCalls = calls.map((c) => ({ name: c.function.name || "?", arguments: c.function.arguments || "" }));
+  return buildAgentResult(calls, content, rawToolCalls, finishReason);
 }
 
 /** Generic: ask the model for a JSON object of an arbitrary shape. Returns null on parse failure. */
