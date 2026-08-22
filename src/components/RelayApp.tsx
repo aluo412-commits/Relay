@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { dueState, formatDue, compareDue } from "@/lib/dates";
 import type {
   ProjectState,
@@ -1711,6 +1711,41 @@ export default function RelayApp() {
       )}
 
       {view === "chat" && (
+      <div className="shell">
+        {/* WORKSTREAM RAIL — context organized around work */}
+        <aside className="rail">
+          <div className="rail-head">
+            <span className="rail-title">Workstreams</span>
+            <button className="rail-add" onClick={() => setView("boards")} title="New workstream" aria-label="New workstream">+</button>
+          </div>
+          <div className="rail-list">
+            {boards.map((b) => (
+              <button
+                key={b.id}
+                className={"stream-card" + (b.id === activeBoardId ? " active" : "")}
+                style={b.color ? ({ "--stream": b.color } as CSSProperties) : undefined}
+                onClick={() => { setActiveBoardId(b.id); setView("chat"); }}
+              >
+                <span className="stream-bar" />
+                <span className="stream-ring" style={{ ["--p"]: `${b.progress}%` } as CSSProperties}>
+                  <span className="stream-ring-num">{b.progress}%</span>
+                </span>
+                <span className="stream-main">
+                  <span className="stream-name-row">
+                    <span className="stream-name">{b.name}</span>
+                  </span>
+                  {b.summary ? <span className="stream-summary">{b.summary}</span> : null}
+                  <span className="stream-stats">
+                    <span className="stream-meta">
+                      {b.openCount} open{b.openCount === 1 ? "" : ""} · {b.tasks.length} task{b.tasks.length === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <button className="rail-boards" onClick={() => setView("boards")}>All boards →</button>
+        </aside>
       <div className="panes">
         {/* WORKSPACE */}
         <section className="workspace">
@@ -2254,6 +2289,7 @@ export default function RelayApp() {
             ))}
           </div>
         </section>
+      </div>
       </div>
       )}
 
