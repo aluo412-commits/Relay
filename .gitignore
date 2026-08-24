@@ -22,3 +22,6 @@ prisma/dev.db*
 *.pem
 npm-debug.log*
 next-env.d.ts
+
+# Tesseract OCR language data (downloaded at runtime)
+*.traineddata

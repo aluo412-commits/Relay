@@ -267,6 +267,9 @@ export default function RelayApp() {
   const [dragging, setDragging] = useState<TaskDTO | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [view, setView] = useState<"chat" | "boards" | "board">("chat");
+  // On phones the three chat-view columns (rail / chat / memory) become separate
+  // full-screen pages, switched by the bottom nav. Ignored on desktop (all show).
+  const [mobileTab, setMobileTab] = useState<"streams" | "chat" | "memory">("chat");
   const [activeBoardId, setActiveBoardId] = useState<string>("");
   const [newBoardName, setNewBoardName] = useState("");
   const [syncItems, setSyncItems] = useState<SyncItem[]>([]);
@@ -1856,7 +1859,7 @@ export default function RelayApp() {
       )}
 
       {view === "chat" && (
-      <div className="shell">
+      <div className="shell" data-mtab={mobileTab}>
         {/* WORKSTREAM RAIL — context organized around work */}
         <aside className="rail">
           <div className="rail-head">
@@ -1869,7 +1872,7 @@ export default function RelayApp() {
                 key={b.id}
                 className={"stream-card" + (b.id === activeBoardId ? " active" : "")}
                 style={b.color ? ({ "--stream": b.color } as CSSProperties) : undefined}
-                onClick={() => { setActiveBoardId(b.id); setView("chat"); }}
+                onClick={() => { setActiveBoardId(b.id); setView("chat"); setMobileTab("chat"); }}
               >
                 <span className="stream-bar" />
                 <span className="stream-ring" style={{ ["--p"]: `${b.progress}%` } as CSSProperties}>
@@ -2763,6 +2766,49 @@ export default function RelayApp() {
           </div>
         </div>
       )}
+
+      {/* Phone navigation — turns the chat view's three columns into separate pages
+          plus a shortcut to Boards. Hidden on desktop (CSS). */}
+      <nav className="mobnav" aria-label="Sections">
+        <button
+          className={"mobnav-btn" + (view === "chat" && mobileTab === "streams" ? " on" : "")}
+          onClick={() => { setView("chat"); setMobileTab("streams"); }}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <rect x="3" y="3.5" width="14" height="4" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+            <rect x="3" y="12.5" width="14" height="4" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          <span>Streams</span>
+        </button>
+        <button
+          className={"mobnav-btn" + (view === "chat" && mobileTab === "chat" ? " on" : "")}
+          onClick={() => { setView("chat"); setMobileTab("chat"); }}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M3.5 5.5A2 2 0 0 1 5.5 3.5h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H8l-3.5 3v-3a2 2 0 0 1-1-1.7V5.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+          </svg>
+          <span>Ask Relay</span>
+        </button>
+        <button
+          className={"mobnav-btn" + (view === "boards" || view === "board" ? " on" : "")}
+          onClick={() => setView("boards")}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <rect x="3" y="3.5" width="5.5" height="13" rx="1.3" stroke="currentColor" strokeWidth="1.5" />
+            <rect x="11.5" y="3.5" width="5.5" height="8" rx="1.3" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          <span>Boards</span>
+        </button>
+        <button
+          className={"mobnav-btn" + (view === "chat" && mobileTab === "memory" ? " on" : "")}
+          onClick={() => { setView("chat"); setMobileTab("memory"); }}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M10 3.5c-2 0-3 1.2-3 3v.3c-1.3.4-2 1.5-2 2.9 0 1 .5 1.9 1.3 2.4.1 1.6 1.3 2.9 3 2.9M10 3.5c2 0 3 1.2 3 3v.3c1.3.4 2 1.5 2 2.9 0 1-.5 1.9-1.3 2.4-.1 1.6-1.3 2.9-3 2.9M10 3.5v11.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>Memory</span>
+        </button>
+      </nav>
 
       <div className={`toast${toast ? " show" : ""}`}>{toast}</div>
     </div>

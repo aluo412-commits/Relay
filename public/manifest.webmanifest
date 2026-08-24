@@ -1,0 +1,17 @@
+{
+  "name": "Relay",
+  "short_name": "Relay",
+  "description": "Chat is for people, work runs on Relay. An AI project manager for teams that hate project management.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1117",
+  "theme_color": "#5b5fe9",
+  "categories": ["productivity", "business"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

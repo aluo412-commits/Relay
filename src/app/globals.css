@@ -710,7 +710,7 @@ button { font-family: inherit; }
 /* AI-unavailable banner */
 .ai-banner { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 18px; background: color-mix(in srgb, var(--bad) 12%, var(--surface)); border-bottom: 1px solid var(--bad); color: var(--text); font-size: 0.85rem; }
 .ai-banner-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
-.ai-banner-text { flex: 1; min-width: 0; }
+.ai-banner-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ai-banner-btn { flex: none; font-family: var(--font-sans); font-size: 0.78rem; font-weight: 600; border: 1px solid var(--bad); background: transparent; color: var(--bad); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
 .ai-banner-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, transparent); }
 .ai-banner-btn:disabled { opacity: 0.5; cursor: default; }
@@ -1043,3 +1043,58 @@ button { font-family: inherit; }
 .tree-act:hover { background: var(--surface-3); color: var(--text); }
 .tree-act.danger:hover { color: var(--bad); }
 @media (hover: none) { .tree-actions { opacity: 1; } }
+
+/* =========================================================================
+   Phone app shell (≤860px). The chat view's three columns — Streams (the
+   workstream rail), Ask Relay (the chat workspace), and Memory (the shared
+   board sidebar) — become separate full-screen pages, switched by a fixed
+   bottom nav that also jumps to Boards. This makes Relay behave like an
+   installed app on a phone instead of a desktop layout squeezed sideways.
+   Rules live at the end of the file so they win the cascade over the
+   narrow-desktop (≤980) rail collapse.
+   ========================================================================= */
+.mobnav { display: none; }
+
+@media (max-width: 860px) {
+  /* Stack the shell; each column becomes a full page. */
+  .shell { flex-direction: column; }
+  .rail { width: 100%; flex: 1; min-height: 0; border-right: none; border-bottom: none; background: var(--bg); }
+  .rail-list { padding: 12px 14px; gap: 9px; }
+  .panes { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: visible; }
+  .workspace { border-right: none; flex: 1; min-height: 0; }
+  .board { flex: 1; min-height: 0; }
+
+  /* The workstream rail is a real page here, so restore the detail the ≤980
+     narrow-desktop collapse hides, and give the cards room to breathe. */
+  .rail-title, .stream-summary, .stream-meta, .rail-boards { display: revert; }
+  .stream-name { font-size: 0.95rem; }
+  .stream-card { padding: 12px 13px; border-radius: 12px; }
+  .stream-ring { width: 34px; height: 34px; }
+  .rail-head { padding: 14px 16px 8px; }
+
+  /* Show only the page for the active bottom-nav tab. */
+  .shell[data-mtab="streams"] .panes { display: none; }
+  .shell[data-mtab="chat"] .rail,
+  .shell[data-mtab="chat"] .board { display: none; }
+  .shell[data-mtab="memory"] .rail,
+  .shell[data-mtab="memory"] .workspace { display: none; }
+
+  /* Bottom navigation bar. */
+  .mobnav {
+    display: flex; flex: none; z-index: 30;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(12px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .mobnav-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    border: none; background: none; cursor: pointer;
+    padding: 8px 4px 7px; color: var(--faint);
+    font-family: var(--font-sans); font-size: 0.62rem; font-weight: 650; letter-spacing: 0.01em;
+    transition: color 0.14s;
+  }
+  .mobnav-btn svg { color: inherit; }
+  .mobnav-btn.on { color: var(--accent); }
+  .mobnav-btn:active { color: var(--text); }
+}
