@@ -1098,3 +1098,21 @@ button { font-family: inherit; }
   .mobnav-btn.on { color: var(--accent); }
   .mobnav-btn:active { color: var(--text); }
 }
+
+/* ---- Jira-style issue fields on task cards (Phase 1: types, keys, points, epics, labels) ---- */
+.task .tk-head { display: flex; align-items: center; gap: 7px; }
+.tk-type { width: 17px; height: 17px; border-radius: 4px; display: inline-grid; place-items: center; font-family: var(--font-mono); font-size: 0.6rem; font-weight: 800; color: #fff; flex: none; }
+.tk-type.t-task { background: #5b5fe9; }
+.tk-type.t-story { background: #16a375; }
+.tk-type.t-bug { background: #e0574f; }
+.tk-type.t-epic { background: #8b5cf6; }
+.tk-key { font-family: var(--font-mono); font-size: 0.66rem; color: var(--faint); letter-spacing: 0.03em; }
+.tk-pts { font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; min-width: 18px; height: 17px; padding: 0 5px; display: inline-grid; place-items: center; }
+.tk-spacer { flex: 1; }
+.task .tk-epic { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #7c5cd6; font-weight: 600; }
+.tk-epic-dot { width: 8px; height: 8px; border-radius: 2px; background: #8b5cf6; flex: none; }
+.tk-label { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+.task.epic { border-left: 3px solid #8b5cf6; }
+:root[data-theme="dark"] .tk-epic, .task .tk-epic { }
+.td-keyline { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.doc-meta-row .tk-pts { height: 18px; }

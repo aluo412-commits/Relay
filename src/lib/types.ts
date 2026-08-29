@@ -3,6 +3,8 @@
 export type TaskStatus = "new" | "inprogress" | "blocked" | "done";
 export type Priority = "low" | "medium" | "high";
 export type Importance = "normal" | "important" | "critical";
+export type TaskType = "task" | "bug" | "story" | "epic";
+export const TASK_TYPES: TaskType[] = ["task", "bug", "story", "epic"];
 
 export interface MemberDTO {
   id: string;
@@ -15,6 +17,13 @@ export interface TaskDTO {
   id: string;
   name: string;
   status: TaskStatus;
+  type: TaskType;
+  key: string | null; // human issue key, e.g. "REL-12"
+  points: number | null; // story points
+  labels: string[];
+  parentId: string | null; // epic (or parent task) id
+  parentKey: string | null; // epic key, for display
+  parentName: string | null; // epic name, for display
   note: string | null;
   owner: { name: string; color: string } | null;
   objective: string | null;
@@ -78,6 +87,10 @@ export type BoardAction =
       name: string;
       owner?: string;
       status?: TaskStatus;
+      issueType?: TaskType; // task | bug | story | epic
+      points?: number;
+      labels?: string[];
+      epic?: string; // name of the parent epic, if this task belongs to one
       note?: string;
       objective?: string;
       acceptanceCriteria?: string[];
@@ -112,6 +125,10 @@ export interface TaskDraft {
   objective?: string;
   owner?: string;
   status?: TaskStatus;
+  type?: TaskType; // task | bug | story | epic
+  points?: number; // story points
+  labels?: string[];
+  epic?: string; // name of the parent epic this belongs to
   priority?: Priority;
   acceptanceCriteria?: string[];
   dependencies?: string;

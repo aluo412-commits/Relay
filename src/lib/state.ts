@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import type { ProjectState, TaskStatus, BoardAction, Priority, DraftPayload } from "./types";
+import type { ProjectState, TaskStatus, BoardAction, Priority, DraftPayload, TaskDTO } from "./types";
 import type { AgentProposal, AgentDocument } from "./minimax";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -131,6 +131,10 @@ export async function executeAgentOutput(
           name: t.name,
           owner: t.owner,
           status: t.status,
+          issueType: t.type,
+          points: t.points,
+          labels: t.labels,
+          epic: t.epic,
           note: t.note,
           objective: t.objective,
           acceptanceCriteria: t.acceptanceCriteria,
@@ -225,20 +229,31 @@ export async function loadState(projectId: string): Promise<ProjectState> {
     prisma.knowledge.findMany({ where: { projectId: project.id }, orderBy: { createdAt: "desc" } }),
   ]);
 
-  const taskDTOs = tasks.map((t) => ({
-    id: t.id,
-    name: t.name,
-    status: t.status as TaskStatus,
-    note: t.note,
-    owner: t.owner ? { name: t.owner.name, color: t.owner.color } : null,
-    objective: t.objective,
-    acceptanceCriteria: parseList(t.acceptanceCriteria),
-    dependencies: t.dependencies,
-    priority: (t.priority as Priority) ?? null,
-    due: t.due,
-    boardId: t.boardId,
-    boardName: t.board?.name ?? "",
-  }));
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const taskDTOs = tasks.map((t) => {
+    const parent = t.parentId ? taskById.get(t.parentId) : undefined;
+    return {
+      id: t.id,
+      name: t.name,
+      status: t.status as TaskStatus,
+      type: (t.type as TaskDTO["type"]) ?? "task",
+      key: t.key ?? null,
+      points: t.points ?? null,
+      labels: t.labels ?? [],
+      parentId: t.parentId ?? null,
+      parentKey: parent?.key ?? null,
+      parentName: parent?.name ?? null,
+      note: t.note,
+      owner: t.owner ? { name: t.owner.name, color: t.owner.color } : null,
+      objective: t.objective,
+      acceptanceCriteria: parseList(t.acceptanceCriteria),
+      dependencies: t.dependencies,
+      priority: (t.priority as Priority) ?? null,
+      due: t.due,
+      boardId: t.boardId,
+      boardName: t.board?.name ?? "",
+    };
+  });
 
   const boardDTOs = boards.map((b) => {
     const bt = taskDTOs.filter((t) => t.boardId === b.id);
@@ -306,6 +321,22 @@ export async function applyActions(
   const findMember = (name?: string) =>
     name ? members.find((m) => m.name.toLowerCase() === name.toLowerCase()) : undefined;
 
+  // Issue keys + epic resolution (Phase 1). Keys are project-wide (REL-1, REL-2…);
+  // epics can live on any board, so they're looked up project-wide.
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, taskKeyPrefix: true } });
+  const keyPrefix =
+    project?.taskKeyPrefix || ((project?.name.match(/[A-Za-z]/g) ?? []).join("").toUpperCase().slice(0, 3) || "REL");
+  if (project && !project.taskKeyPrefix) {
+    await prisma.project.update({ where: { id: projectId }, data: { taskKeyPrefix: keyPrefix } });
+  }
+  const existingEpics = await prisma.task.findMany({ where: { projectId, type: "epic" }, select: { id: true, name: true } });
+  const epicByName = new Map(existingEpics.map((e) => [e.name.toLowerCase(), e.id] as const));
+  const nextKey = async () => {
+    const p = await prisma.project.update({ where: { id: projectId }, data: { taskSeq: { increment: 1 } }, select: { taskSeq: true } });
+    return `${keyPrefix}-${p.taskSeq}`;
+  };
+  const TYPES = ["task", "bug", "story", "epic"];
+
   for (const action of actions) {
     switch (action.type) {
       case "complete_task": {
@@ -328,12 +359,19 @@ export async function applyActions(
       }
       case "create_task": {
         const owner = findMember(action.owner);
-        await prisma.task.create({
+        const issueType = action.issueType && TYPES.includes(action.issueType) ? action.issueType : "task";
+        const parentId = action.epic ? epicByName.get(action.epic.toLowerCase()) ?? null : null;
+        const created = await prisma.task.create({
           data: {
             projectId,
             boardId,
             name: action.name,
             status: normalizeStatus(action.status),
+            type: issueType,
+            key: await nextKey(),
+            points: typeof action.points === "number" && action.points >= 0 ? Math.round(action.points) : null,
+            labels: action.labels?.filter(Boolean) ?? [],
+            parentId,
             ownerId: owner?.id,
             note: action.note,
             objective: action.objective,
@@ -345,6 +383,8 @@ export async function applyActions(
             due: action.due,
           },
         });
+        // A newly-created epic becomes a valid parent for later tasks in this batch.
+        if (created.type === "epic") epicByName.set(created.name.toLowerCase(), created.id);
         // Assignment notification (to the owner, unless they assigned it to themselves).
         if (owner && owner.name.toLowerCase() !== (actorName ?? "").toLowerCase()) {
           await prisma.notification.create({

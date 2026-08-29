@@ -224,7 +224,8 @@ const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "propose_tasks",
-      description: "Propose one or more well-specified tasks to publish to the board.",
+      description:
+        "Propose one or more well-specified issues to publish to the board. Use issue types like Jira: 'epic' for a big body of work, 'story'/'task' for normal work, 'bug' for defects. To group work, first list the epic (type 'epic') then its child tasks with `epic` set to the epic's exact name. Estimate effort in `points` when you can (Fibonacci-ish: 1,2,3,5,8).",
       parameters: {
         type: "object",
         properties: {
@@ -236,6 +237,10 @@ const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
               type: "object",
               properties: {
                 name: { type: "string" },
+                type: { type: "string", enum: ["task", "bug", "story", "epic"], description: "issue type; default 'task'" },
+                epic: { type: "string", description: "exact name of the parent epic this belongs under, if any" },
+                points: { type: "number", description: "story-point estimate (1,2,3,5,8)" },
+                labels: { type: "array", items: { type: "string" }, description: "short freeform tags, e.g. 'frontend', 'urgent'" },
                 objective: { type: "string" },
                 owner: { type: "string" },
                 priority: { type: "string", enum: ["low", "medium", "high"] },

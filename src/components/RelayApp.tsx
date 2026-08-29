@@ -3126,17 +3126,26 @@ function TaskCard({
 }) {
   return (
     <button
-      className={`task${flash ? " flash" : ""}${draggable ? " draggable" : ""}`}
+      className={`task${flash ? " flash" : ""}${draggable ? " draggable" : ""}${task.type === "epic" ? " epic" : ""}`}
       onClick={onOpen}
-      title="Open task spec"
+      title="Open issue"
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
-      <div className="top">
-        <span className="name">{task.name}</span>
+      <div className="tk-head">
+        <IssueType type={task.type} />
+        {task.key ? <span className="tk-key">{task.key}</span> : null}
+        {task.points != null ? <span className="tk-pts" title="story points">{task.points}</span> : null}
+        <span className="tk-spacer" />
         <span className={`pill ${task.status}`}>{STATUS_LABEL[task.status] ?? task.status}</span>
       </div>
+      <div className="name">{task.name}</div>
+      {task.type !== "epic" && task.parentName ? (
+        <span className="tk-epic" title={`Epic: ${task.parentName}`}>
+          <span className="tk-epic-dot" /> {task.parentName}
+        </span>
+      ) : null}
       <div className="foot">
         {task.owner ? (
           <span className="owner">
@@ -3151,8 +3160,27 @@ function TaskCard({
         {task.acceptanceCriteria.length ? (
           <span className="ac-count">✓ {task.acceptanceCriteria.length}</span>
         ) : null}
+        {task.labels.slice(0, 3).map((l, i) => (
+          <span key={i} className="tk-label">{l}</span>
+        ))}
       </div>
     </button>
+  );
+}
+
+// Jira-style issue-type marker: a small colored square with a letter.
+const ISSUE_TYPE_META: Record<TaskDTO["type"], { letter: string; label: string }> = {
+  task: { letter: "T", label: "Task" },
+  bug: { letter: "B", label: "Bug" },
+  story: { letter: "S", label: "Story" },
+  epic: { letter: "E", label: "Epic" },
+};
+function IssueType({ type }: { type: TaskDTO["type"] }) {
+  const m = ISSUE_TYPE_META[type] ?? ISSUE_TYPE_META.task;
+  return (
+    <span className={`tk-type t-${type}`} title={m.label} aria-label={m.label}>
+      {m.letter}
+    </span>
   );
 }
 
@@ -3299,6 +3327,40 @@ function TasksEditor({
             />
             {draft.tasks.length > 1 ? (
               <button className="draft-x" title="Remove task" onClick={() => removeTask(i)}>×</button>
+            ) : null}
+          </div>
+          <div className="draft-row">
+            <Field label="Type">
+              <select
+                className="d-input"
+                value={t.type ?? "task"}
+                onChange={(e) => setTask(i, { type: e.target.value as TaskDraft["type"] })}
+              >
+                <option value="task">Task</option>
+                <option value="story">Story</option>
+                <option value="bug">Bug</option>
+                <option value="epic">Epic</option>
+              </select>
+            </Field>
+            <Field label="Points">
+              <input
+                type="number"
+                min={0}
+                className="d-input"
+                value={t.points ?? ""}
+                placeholder="—"
+                onChange={(e) => setTask(i, { points: e.target.value === "" ? undefined : Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              />
+            </Field>
+            {t.type !== "epic" ? (
+              <Field label="Epic (optional)">
+                <input
+                  className="d-input"
+                  value={t.epic ?? ""}
+                  placeholder="parent epic name"
+                  onChange={(e) => setTask(i, { epic: e.target.value || undefined })}
+                />
+              </Field>
             ) : null}
           </div>
           <div className="draft-row">
@@ -3554,6 +3616,13 @@ function TaskDetail({
 
   return (
     <div className="modal-body">
+      <div className="td-keyline">
+        <IssueType type={t.type} />
+        {t.key ? <span className="tk-key">{t.key}</span> : null}
+        {t.type !== "epic" && t.parentName ? (
+          <span className="tk-epic"><span className="tk-epic-dot" /> {t.parentName}</span>
+        ) : null}
+      </div>
       <div className="doc-title-row">
         <h3 className="doc-title">{t.name}</h3>
         <span className={`pill ${t.status}`}>{STATUS_LABEL[t.status] ?? t.status}</span>
@@ -3569,6 +3638,10 @@ function TaskDetail({
         )}
         {t.priority ? <PriorityChip level={t.priority} /> : null}
         {t.due ? <DueChip due={t.due} /> : null}
+        {t.points != null ? <span className="tk-pts" title="story points">{t.points} pts</span> : null}
+        {t.labels.map((l, i) => (
+          <span key={i} className="tk-label">{l}</span>
+        ))}
       </div>
       {t.objective ? <DocSection label="Objective" body={t.objective} /> : null}
       {t.acceptanceCriteria.length ? (

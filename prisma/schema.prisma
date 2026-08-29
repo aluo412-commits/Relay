@@ -32,6 +32,8 @@ model Project {
   deadline   String?
   model      String   @default("glm-5.3-flash") // selected model for the agent (OpenAI-compatible id; default provider is Zhipu GLM)
   inviteCode String   @unique // teammates join this workspace with this code
+  taskSeq       Int     @default(0) // running counter for human issue keys (REL-1, REL-2…)
+  taskKeyPrefix String? // key prefix (derived from name if unset), e.g. "REL"
   createdAt  DateTime @default(now())
 
   boards        Board[]
@@ -134,6 +136,14 @@ model Task {
   name               String
   // status: "new" | "inprogress" | "blocked" | "done"
   status             String   @default("inprogress")
+  // type: "task" | "bug" | "story" | "epic"
+  type               String   @default("task")
+  key                String? // human issue key, e.g. "REL-12"
+  points             Int? // story-point estimate
+  labels             String[] @default([]) // freeform tags
+  parentId           String? // epic → child, or parent task → subtask
+  parent             Task?    @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children           Task[]   @relation("TaskHierarchy")
   ownerId            String?
   owner              Member?  @relation("TaskOwner", fields: [ownerId], references: [id])
   note               String?
@@ -142,8 +152,12 @@ model Task {
   dependencies       String? // what it's blocked by / needs first
   priority           String? // "low" | "medium" | "high"
   due                String?
+  sprintId           String? // reserved for Phase 2 (sprints); null = backlog/board
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([parentId])
 }
 
 // A work record: an official, structured document posted to the project timeline.
