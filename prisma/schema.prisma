@@ -30,7 +30,7 @@ model Project {
   id         String   @id @default(cuid())
   name       String
   deadline   String?
-  model      String   @default("claude-haiku-4-5") // selected model for the agent (OpenCode Zen id)
+  model      String   @default("glm-5.3-flash") // selected model for the agent (OpenAI-compatible id; default provider is Zhipu GLM)
   inviteCode String   @unique // teammates join this workspace with this code
   createdAt  DateTime @default(now())
 

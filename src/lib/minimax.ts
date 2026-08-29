@@ -51,14 +51,26 @@ export interface AgentQuestion {
   ifNoStatus?: string;
 }
 
-// Provider-agnostic OpenAI-compatible client (currently OpenCode Zen; MiniMax vars
-// kept as fallback). The key stays server-side.
+// Provider-agnostic OpenAI-compatible client. Default target is Zhipu GLM
+// (BigModel — https://open.bigmodel.cn/api/paas/v4), which is OpenAI-compatible and
+// supports streaming + function calling. Everything is env-overridable so the
+// provider can be swapped without code changes. The key never leaves the server.
+//   LLM_API_KEY   — the provider key (Zhipu/BigModel key here)
+//   LLM_BASE_URL  — OpenAI-compatible base (…/api/paas/v4 for BigModel, or z.ai)
+//   LLM_MODEL     — default model id (per-project model in the DB overrides this)
 const client = new OpenAI({
-  apiKey: process.env.OPENCODE_API_KEY || process.env.MINIMAX_API_KEY,
-  baseURL: process.env.LLM_BASE_URL || process.env.MINIMAX_BASE_URL || "https://opencode.ai/zen/v1",
+  apiKey:
+    process.env.LLM_API_KEY ||
+    process.env.ZHIPU_API_KEY ||
+    process.env.OPENCODE_API_KEY ||
+    process.env.MINIMAX_API_KEY,
+  baseURL:
+    process.env.LLM_BASE_URL ||
+    process.env.MINIMAX_BASE_URL ||
+    "https://open.bigmodel.cn/api/paas/v4",
 });
 
-const MODEL = process.env.LLM_MODEL || process.env.MINIMAX_MODEL || "claude-haiku-4-5";
+const MODEL = process.env.LLM_MODEL || process.env.MINIMAX_MODEL || "glm-5.3-flash";
 
 /** The models the provider actually serves (from GET /models). Empty on failure. */
 export async function listModels(): Promise<string[]> {
@@ -76,7 +88,9 @@ export async function checkAiHealth(model?: string): Promise<{ ok: boolean; erro
     await client.chat.completions.create({
       model: model || MODEL,
       messages: [{ role: "user", content: "ok" }],
-      max_tokens: 1,
+      // Thinking models (e.g. GLM-5.3) can't emit output under a 1-token cap; give
+      // a little headroom so the health probe surfaces only real auth/billing errors.
+      max_tokens: 16,
     });
     return { ok: true };
   } catch (e) {
@@ -593,7 +607,9 @@ export async function runAgentTurn(
   const completion = await client.chat.completions.create({
     model: model || MODEL,
     temperature: 0.4,
-    max_tokens: 1800,
+    // Headroom for reasoning tokens (GLM-5.3 thinking is always on) so the tool
+    // call that follows the thinking isn't truncated.
+    max_tokens: 4000,
     tools: AGENT_TOOLS,
     tool_choice: "auto",
     messages: [{ role: "system", content: systemPrompt }, ...history],
@@ -618,7 +634,8 @@ export async function runAgentTurnStream(
   const stream = await client.chat.completions.create({
     model: model || MODEL,
     temperature: 0.4,
-    max_tokens: 1800,
+    // Headroom for GLM-5.3's always-on reasoning tokens before the tool call.
+    max_tokens: 4000,
     tools: AGENT_TOOLS,
     tool_choice: "auto",
     stream: true,
@@ -668,7 +685,7 @@ export async function completeJson<T>(systemPrompt: string, userContent: string,
   const completion = await client.chat.completions.create({
     model: model || MODEL,
     temperature: 0.3,
-    max_tokens: 900,
+    max_tokens: 2000, // room for GLM-5.3 reasoning tokens ahead of the JSON
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userContent },
@@ -723,7 +740,7 @@ export async function relayTurn(
   const completion = await client.chat.completions.create({
     model: MODEL,
     temperature: 0.4,
-    max_tokens: 1200,
+    max_tokens: 2500, // room for GLM-5.3 reasoning tokens ahead of the JSON
     messages: [{ role: "system", content: systemPrompt }, ...history],
   });
 
