@@ -67,7 +67,9 @@ const client = new OpenAI({
   baseURL:
     process.env.LLM_BASE_URL ||
     process.env.MINIMAX_BASE_URL ||
-    "https://open.bigmodel.cn/api/paas/v4",
+    // GLM Coding Plan keys authenticate on the /api/coding/paas/v4 path; standard
+    // pay-as-you-go keys use /api/paas/v4. Override via LLM_BASE_URL as needed.
+    "https://open.bigmodel.cn/api/coding/paas/v4",
 });
 
 const MODEL = process.env.LLM_MODEL || process.env.MINIMAX_MODEL || "glm-5.3-flash";
