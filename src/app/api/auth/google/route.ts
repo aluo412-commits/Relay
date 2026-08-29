@@ -10,7 +10,7 @@ const isProd = process.env.NODE_ENV === "production";
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   if (!googleConfigured()) {
-    return NextResponse.redirect(new URL("/?authError=google_unconfigured", origin));
+    return NextResponse.redirect(new URL("/app?authError=google_unconfigured", origin));
   }
   const state = crypto.randomUUID();
   const res = NextResponse.redirect(googleAuthUrl(origin, state));

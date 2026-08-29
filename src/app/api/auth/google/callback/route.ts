@@ -10,7 +10,7 @@ const STATE_COOKIE = "g_oauth_state";
 // GET /api/auth/google/callback -> exchange the code, upsert the user, start a session.
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = req.nextUrl;
-  const fail = (reason: string) => NextResponse.redirect(new URL(`/?authError=${reason}`, origin));
+  const fail = (reason: string) => NextResponse.redirect(new URL(`/app?authError=${reason}`, origin));
 
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
       orderBy: { project: { createdAt: "asc" } },
     });
 
-    const res = NextResponse.redirect(new URL("/", origin));
+    const res = NextResponse.redirect(new URL("/app", origin));
     res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_MAX_AGE));
     if (firstMembership) {
       res.cookies.set(WORKSPACE_COOKIE, firstMembership.projectId, cookieOptions(SESSION_MAX_AGE));

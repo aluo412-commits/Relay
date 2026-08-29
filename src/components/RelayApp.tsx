@@ -971,6 +971,8 @@ export default function RelayApp() {
     setState(null);
     setMemberId("");
     setMessages([]);
+    // Return to the public marketing site after signing out.
+    if (typeof window !== "undefined") window.location.href = "/";
   }
 
   // --- Source-of-truth files ---
