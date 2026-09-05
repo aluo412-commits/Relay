@@ -4095,7 +4095,29 @@ function AuthScreen({ onAuthed, googleEnabled }: { onAuthed: () => void; googleE
 
   return (
     <div className="auth-screen">
-      <div className="auth-card">
+      <div className="auth-layout">
+        <aside className="auth-story" aria-label="What Relay does">
+          <div className="auth-story-top">
+            <span className="auth-kicker">TEAM EXECUTION / 01</span>
+            <div className="auth-orbit" aria-hidden="true">
+              <span className="orbit-core"><RelayGlyph /></span>
+              <span className="orbit-node node-a" />
+              <span className="orbit-node node-b" />
+              <span className="orbit-node node-c" />
+            </div>
+          </div>
+          <div className="auth-story-copy">
+            <p className="auth-story-overline">The work layer for teams</p>
+            <h2>Say what happened.<br /><em>Relay keeps it moving.</em></h2>
+            <p>Turn everyday updates into tasks, decisions, and follow-through — without another status meeting.</p>
+          </div>
+          <div className="auth-story-signals">
+            <div><span className="signal-dot live" /> capture <b>→</b> structure</div>
+            <div><span className="signal-dot teal" /> evidence <b>→</b> progress</div>
+            <div><span className="signal-dot orange" /> change <b>→</b> the right person</div>
+          </div>
+        </aside>
+        <div className="auth-card">
         <div className="auth-brand">
           <BrandMark />
           <span>Relay</span>
@@ -4145,6 +4167,7 @@ function AuthScreen({ onAuthed, googleEnabled }: { onAuthed: () => void; googleE
           ) : (
             <>Already have an account? <button onClick={() => { setMode("login"); setErr(null); }}>Log in</button></>
           )}
+        </div>
         </div>
       </div>
     </div>

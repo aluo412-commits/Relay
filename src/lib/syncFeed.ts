@@ -48,7 +48,9 @@ export async function loadSyncFeed(memberId: string): Promise<{ memberName: stri
   );
 
   // Persisted reconciliation flags ride at the front — a stale spec beats routine news.
-  const reconcileItems: SyncItem[] = reconcileFlags.map((f) => ({
+  const reconcileItems: SyncItem[] = reconcileFlags
+    .filter((f) => !dismissedKeys.has(`reconcile:${f.id}`))
+    .map((f) => ({
     key: `reconcile:${f.id}`,
     verdict: "reconcile",
     intensity: "proactive",
@@ -58,7 +60,7 @@ export async function loadSyncFeed(memberId: string): Promise<{ memberName: stri
     boardId: null,
     fromName: null,
     createdAt: f.createdAt.toISOString(),
-  }));
+    }));
 
   // Questions reach people through the feed (no separate UI): open questions you can
   // answer, and answers coming back to the asker.
@@ -115,30 +117,34 @@ export async function runReconcile(memberId: string): Promise<void> {
   if (!project) return;
 
   const tasks = await prisma.task.findMany({
-    where: { projectId: project.id, ownerId: memberId, status: "inprogress" },
+    where: { projectId: project.id, ownerId: memberId, status: { in: ["new", "inprogress", "blocked"] } },
     orderBy: { updatedAt: "desc" },
-    take: 5,
+    take: 8,
   });
   if (!tasks.length) return;
 
-  const [knowledge, updates] = await Promise.all([
+  const [knowledge, updates, logs] = await Promise.all([
     prisma.knowledge.findMany({ where: { projectId: project.id }, orderBy: { createdAt: "desc" }, take: 10 }),
     prisma.update.findMany({ where: { projectId: project.id }, include: { author: true }, orderBy: { createdAt: "desc" }, take: 10 }),
+    prisma.logEntry.findMany({ where: { projectId: project.id, memberId }, orderBy: { createdAt: "desc" }, take: 12 }),
   ]);
-  if (!knowledge.length && !updates.length) return;
+  if (!knowledge.length && !updates.length && !logs.length) return;
 
   const taskText = tasks
-    .map((t) => `- ${t.name}: ${t.objective ?? "(no objective)"}${t.acceptanceCriteria ? ` | criteria: ${t.acceptanceCriteria}` : ""}`)
+    .map((t) => `- ${t.name} [${t.status}, last task change ${t.updatedAt.toISOString()}]: ${t.objective ?? "(no objective)"}${t.acceptanceCriteria ? ` | criteria: ${t.acceptanceCriteria}` : ""}`)
     .join("\n");
   const noteText = [
-    ...knowledge.map((k) => `[${k.tag}] ${k.text}`),
-    ...updates.map((u) => `${u.author?.name ?? "?"}: ${u.title} — ${u.summary ?? ""}`),
+    ...knowledge.map((k) => `[${k.createdAt.toISOString()}] [${k.tag}] ${k.text}`),
+    ...updates.map((u) => `[${u.createdAt.toISOString()}] ${u.author?.name ?? "?"}: ${u.title} — ${u.summary ?? ""}`),
+    ...logs.map((l) => `[${l.createdAt.toISOString()}] ${member.name}'s log: ${l.text}`),
   ].join("\n");
 
   const sys =
-    "You check whether a person's in-progress tasks have gone stale given recent team notes. " +
-    'Return ONLY JSON {"flags":[{"taskName":"<exact task name>","issue":"one sentence on what changed and what to review"}]}. ' +
-    "Include a task ONLY if a note genuinely conflicts with or supersedes it. Empty array if nothing is stale. Be conservative.";
+    "You are Relay's task follow-up judge. Compare active tasks with recent evidence. " +
+    'Return ONLY JSON {"flags":[{"taskName":"<exact task name>","issue":"one sentence explaining the evidence and the next thing to confirm"}]}. ' +
+    "Flag only when a human follow-up is valuable: a genuine conflict/change, a blocked task, missing completion evidence, or no meaningful evidence for several days. " +
+    "Do not flag a task merely because it has no due date. Do not invent elapsed time; use the timestamps. " +
+    "Be conservative and return an empty array when the evidence is insufficient.";
   const result = await completeJson<{ flags: { taskName: string; issue: string }[] }>(
     sys,
     `ACTIVE TASKS:\n${taskText}\n\nRECENT TEAM NOTES:\n${noteText}`,
