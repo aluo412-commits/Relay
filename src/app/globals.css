@@ -463,7 +463,9 @@ button { font-family: inherit; }
 
 /* knowledge importance — bigger when it matters */
 .knowledge .k-lbl { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.knowledge .k-text { margin-top: 3px; }
+.knowledge .k-text { margin-top: 3px; line-height: 1.45; }
+.knowledge .k-text p { margin: 0; }
+.knowledge .k-text p + p { margin-top: 6px; }
 .knowledge.imp-important { border-style: solid; border-color: color-mix(in srgb, var(--warn) 50%, var(--border)); background: color-mix(in srgb, var(--warn) 7%, var(--surface)); }
 .knowledge.imp-important .k-text { font-size: 0.96rem; font-weight: 600; }
 .knowledge.imp-critical { border-style: solid; border-color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, var(--surface)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--bad) 40%, transparent); }
@@ -759,7 +761,7 @@ button { font-family: inherit; }
 .conv-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
 .conv-toggle { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 9px; padding: 6px 10px; cursor: pointer; max-width: 45%; }
 .conv-toggle:hover { border-color: var(--ai); }
-.conv-current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.84rem; font-weight: 600; }
+.conv-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.84rem; font-weight: 600; }
 .conv-search { flex: 1; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 0 9px; color: var(--muted); min-width: 0; }
 .conv-search input { flex: 1; border: none; background: transparent; outline: none; font: inherit; font-size: 0.84rem; color: var(--text); padding: 6px 0; min-width: 0; }
 .conv-search input::placeholder { color: var(--faint); }

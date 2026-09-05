@@ -2066,7 +2066,7 @@ export default function RelayApp() {
             }}
           >
             <SyncPanel items={syncItems} onOpenTask={openTaskByName} onOpenQuestions={() => setQuestionsOpen(true)} onDismiss={dismissSync} />
-            {briefing && (
+            {briefing && (briefing.yourTasks.length > 0 || briefing.newUpdates.length > 0 || briefing.newKnowledge.length > 0 || briefing.requests.length > 0) && (
               <BriefingCard
                 b={briefing}
                 name={currentMember.name}
@@ -2418,7 +2418,7 @@ export default function RelayApp() {
                     <span>◆ {k.tag}</span>
                     {k.importance !== "normal" ? <ImportanceBadge level={k.importance} /> : null}
                   </div>
-                  <div className="k-text">{k.text}</div>
+                  <div className="k-text"><RichText text={k.text} /></div>
                 </div>
               ))}
 
