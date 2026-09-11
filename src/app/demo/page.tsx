@@ -16,7 +16,7 @@ export default function RoboticsDemoPage() {
     <main className="rd-page">
       <header className="rd-nav">
         <Link href="/" className="rd-brand"><span className="rd-mark">◆</span> Relay</Link>
-        <span className="rd-nav-label">Robotics team demo / field notes</span>
+        <span className="rd-nav-label">Relay / Robotics workspace</span>
         <div className="rd-deck-nav" aria-label="Demo slides">
           <a href="#slide-1">01</a><a href="#slide-2">02</a><a href="#slide-3">03</a><a href="#slide-4">04</a>
         </div>
@@ -25,24 +25,24 @@ export default function RoboticsDemoPage() {
 
       <div className="rd-deck">
       <section id="slide-1" className="rd-hero rd-slide">
-        <div className="rd-kicker"><span className="rd-live-dot" /> A live product story for robot teams</div>
-        <h1>Build the robot.<br /><em>Don&apos;t lose the work.</em></h1>
-        <p className="rd-lede">A five-minute demonstration of how Relay turns messy team communication into tasks that stay visible, verifiable, and moving.</p>
+        <div className="rd-kicker"><span className="rd-live-dot" /> RELAY PRODUCT DEMO / ROBOTICS</div>
+        <h1>The work is moving.<br /><em>Relay sees how.</em></h1>
+        <p className="rd-lede">A real Relay-shaped workspace for a robotics team: capture a field note, connect the dependency, and follow the evidence to the next action.</p>
         <div className="rd-hero-meta"><span>Designed for VEX / FIRST teams</span><span>·</span><span>One shared workstream</span><span>·</span><span>Zero status meetings</span></div>
       </section>
 
       <section id="slide-2" className="rd-stage rd-slide">
-        <div className="rd-stage-head"><span>THE DEMO</span><b>From a field note to a team decision</b></div>
+        <div className="rd-stage-head"><span>RELAY WORKSPACE</span><b>From a field note to a team decision</b></div>
         <div className="rd-console">
           <aside className="rd-console-rail">
-            <div className="rd-rail-label">WORKSTREAM</div>
+            <div className="rd-rail-label">WORKSTREAMS</div>
             <div className="rd-stream active"><span className="rd-stream-mark" />Robot v2<span className="rd-stream-count">3</span></div>
             <div className="rd-stream"><span className="rd-stream-mark muted" />Drive base</div>
             <div className="rd-stream"><span className="rd-stream-mark muted" />Competition prep</div>
             <div className="rd-rail-foot">Relay is watching the work<br />so people can do the work.</div>
           </aside>
           <div className="rd-console-main">
-            <div className="rd-console-top"><span>Robot v2 / Shared execution</span><span className="rd-status">● SYNCED</span></div>
+            <div className="rd-console-top"><span>Ask Relay · Robot v2</span><span className="rd-status">● IN SYNC</span></div>
             <div className="rd-signal"><span className="rd-signal-icon">✦</span><div><b>Relay found a dependency</b><p>Jordan&apos;s controller wiring is still in progress. Alex&apos;s autonomous test is blocked by it.</p></div><button>Open task</button></div>
             <div className="rd-console-grid">
               <div><div className="rd-mini-label">CAPTURED</div><blockquote>“The intake is finally consistent. Controller wiring is next — autonomous test can&apos;t start until that lands.”<cite>Alex · team log · 2 min ago</cite></blockquote></div>
