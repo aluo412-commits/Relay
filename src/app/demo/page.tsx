@@ -17,17 +17,21 @@ export default function RoboticsDemoPage() {
       <header className="rd-nav">
         <Link href="/" className="rd-brand"><span className="rd-mark">◆</span> Relay</Link>
         <span className="rd-nav-label">Robotics team demo / field notes</span>
+        <div className="rd-deck-nav" aria-label="Demo slides">
+          <a href="#slide-1">01</a><a href="#slide-2">02</a><a href="#slide-3">03</a><a href="#slide-4">04</a>
+        </div>
         <Link href="/app" className="rd-open">Open Relay <span>↗</span></Link>
       </header>
 
-      <section className="rd-hero">
+      <div className="rd-deck">
+      <section id="slide-1" className="rd-hero rd-slide">
         <div className="rd-kicker"><span className="rd-live-dot" /> A live product story for robot teams</div>
         <h1>Build the robot.<br /><em>Don&apos;t lose the work.</em></h1>
         <p className="rd-lede">A five-minute demonstration of how Relay turns messy team communication into tasks that stay visible, verifiable, and moving.</p>
         <div className="rd-hero-meta"><span>Designed for VEX / FIRST teams</span><span>·</span><span>One shared workstream</span><span>·</span><span>Zero status meetings</span></div>
       </section>
 
-      <section className="rd-stage">
+      <section id="slide-2" className="rd-stage rd-slide">
         <div className="rd-stage-head"><span>THE DEMO</span><b>From a field note to a team decision</b></div>
         <div className="rd-console">
           <aside className="rd-console-rail">
@@ -49,17 +53,18 @@ export default function RoboticsDemoPage() {
         </div>
       </section>
 
-      <section className="rd-steps">
+      <section id="slide-3" className="rd-steps rd-slide">
         <div className="rd-section-intro"><span>WHY IT LANDS</span><h2>Three moments. One shared picture.</h2></div>
         <div className="rd-step"><span className="rd-step-num">01</span><h3>People talk normally</h3><p>No forms. No “please update Jira.” A quick field note is enough for Relay to understand what changed.</p></div>
         <div className="rd-step"><span className="rd-step-num">02</span><h3>The work becomes legible</h3><p>Relay drafts the task, records the decision, connects dependencies, and keeps evidence beside the work.</p></div>
         <div className="rd-step"><span className="rd-step-num">03</span><h3>Progress gets followed</h3><p>When a task is stale, blocked, or missing proof of completion, Relay asks the next useful question.</p></div>
       </section>
 
-      <section className="rd-script">
+      <section id="slide-4" className="rd-script rd-slide">
         <div><span className="rd-section-intro-label">PITCH SCRIPT</span><h2>Say this in the room.</h2><p>About 60 seconds. Keep the product visible while you speak.</p></div>
         <div className="rd-script-card"><div className="rd-script-card-top"><span>RELAY / ELEVATED PITCH</span><button onClick={() => navigator.clipboard?.writeText(PITCH)}>Copy script</button></div><p>{PITCH}</p></div>
       </section>
+      </div>
 
       <footer className="rd-footer"><Link href="/">← Back to Relay</Link><span>Chat is for people. Work runs on Relay.</span><Link href="/app">Try the demo →</Link></footer>
     </main>
