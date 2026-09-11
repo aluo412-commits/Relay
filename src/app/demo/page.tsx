@@ -1,72 +1,49 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import "./demo.css";
 
-const TASKS = [
-  { state: "done", label: "Validate intake geometry", owner: "Maya", note: "Evidence found in the team log" },
-  { state: "live", label: "Wire motor controller", owner: "Jordan", note: "In progress · 2 criteria left" },
-  { state: "risk", label: "Run full autonomous test", owner: "Alex", note: "Blocked by controller wiring" },
+const PITCH = `Relay is an AI execution layer for teams that move fast and communicate constantly. A robotics team can spend hours building, testing, and solving hard problems — but still lose time because an important detail was buried in chat, a task was never updated, or a teammate did not know they were blocked. Relay changes that. People keep talking naturally. Relay turns those conversations into real tasks, decisions, and shared knowledge. Then it follows the work: it looks for evidence of progress, notices when something is blocked or stale, and asks the right person the right question. Unlike a traditional project-management tool, Relay does not ask a team to maintain a second system. Unlike a chatbot, it does not stop at answering. It keeps the team's picture of reality current and helps move the work forward. Chat is for people. Work runs on Relay.`;
+
+const SLIDES = [
+  { label: "Capture", title: "People talk normally.", sub: "A field note is enough for Relay to start doing the work." },
+  { label: "Understand", title: "Relay makes the work legible.", sub: "It extracts the change, the dependency, and the person affected." },
+  { label: "Follow up", title: "The right question reaches the right person.", sub: "No status meeting. No broadcast reminder. Just the next useful action." },
+  { label: "Shared state", title: "The board stays true.", sub: "Evidence, owners, blockers, and progress live in one shared picture." },
+  { label: "The point", title: "The team moves together.", sub: "Relay is the execution layer between conversation and reality." },
 ];
 
-const PITCH = `Relay is an AI execution layer for teams that move fast and communicate constantly.\n\nA robotics team can spend hours building, testing, and solving hard problems — but still lose time because the important detail was buried in chat, a task was never updated, or a teammate did not know they were blocked.\n\nRelay changes that. People keep talking naturally. Relay turns those conversations into real tasks, decisions, and shared knowledge. Then it follows the work: it looks for evidence of progress, notices when something is blocked or stale, and asks the right person the right question.\n\nUnlike a traditional project-management tool, Relay does not ask a team to maintain a second system. Unlike a chatbot, it does not stop at answering. It keeps the team's picture of reality current and helps move the work forward.\n\nChat is for people. Work runs on Relay.`;
+function Task({ state, title, detail, owner }: { state: string; title: string; detail: string; owner: string }) {
+  return <div className="demo-task"><span className={`task-dot ${state}`} /><div><b>{title}</b><small>{detail}</small></div><span className="task-owner">{owner}</span></div>;
+}
+
+function RelayWorkspace({ slide }: { slide: number }) {
+  const showFollowup = slide >= 2;
+  const showBoard = slide >= 3;
+  return (
+    <div className="relay-window">
+      <header className="relay-topbar"><div className="relay-brand"><span className="brand-mark">◆</span> Relay</div><span className="workspace-name">Family / Robot v2</span><span className="top-spacer" /><span className="top-sync"><i /> IN SYNC</span><span className="avatar">AL</span></header>
+      <div className="relay-body">
+        <aside className="relay-rail"><div className="rail-label">WORKSTREAMS</div><div className="rail-stream active"><i /> Robot v2 <em>3</em></div><div className="rail-stream"><i /> Drive base</div><div className="rail-stream"><i /> Competition prep</div><div className="rail-bottom">Chat is for people.<br /><b>Work runs on Relay.</b></div></aside>
+        <main className="relay-chat"><div className="chat-head"><button>Robot v2 <span>⌄</span></button><span className="chat-mode">Ask Relay</span><span className="chat-search">Search this chat…</span></div><div className="chat-content">
+          <div className="relay-kicker">{SLIDES[slide].label.toUpperCase()} / RELAY</div><h1>{SLIDES[slide].title}</h1><p className="slide-sub">{SLIDES[slide].sub}</p>
+          {slide === 0 && <div className="message-stack"><div className="user-msg"><span className="small-avatar">AL</span><div><p>“The intake is finally consistent. Controller wiring is next — autonomous testing can&apos;t start until that lands.”</p><small>Alex · just now</small></div></div><div className="composer-preview"><span>Tell Relay what you did…</span><b>→</b></div></div>}
+          {slide === 1 && <div className="insight-card"><div className="insight-head"><span>✦</span><b>Relay understood</b><small>evidence found in team log</small></div><div className="insight-grid"><div><label>COMPLETED</label><strong>Validate intake geometry</strong><small>Marked complete from explicit evidence</small></div><div><label>DEPENDENCY</label><strong>Controller wiring</strong><small>Required before autonomous testing</small></div></div></div>}
+          {slide === 2 && <div className="followup-card"><div className="followup-tag">FOLLOW-UP NEEDED</div><h3>Jordan&apos;s controller wiring is still in progress.</h3><p>Alex&apos;s autonomous test is blocked by it. Relay found no new evidence since yesterday.</p><div className="followup-actions"><button>Ask Jordan</button><button className="quiet">Open task</button></div></div>}
+          {slide === 3 && <div className="activity-card"><div className="activity-title"><b>Shared execution</b><span>updated now</span></div><Task state="done" title="Validate intake geometry" detail="Evidence found · Complete" owner="Maya" /><Task state="live" title="Wire motor controller" detail="In progress · 2 criteria left" owner="Jordan" /><Task state="risk" title="Run full autonomous test" detail="Blocked by controller wiring" owner="Alex" /></div>}
+          {slide === 4 && <div className="pitch-card"><div className="pitch-label">THE RELAY DIFFERENCE</div><p>“It doesn&apos;t ask the team to maintain another system. It watches the work people already do — and follows up when the shared picture becomes uncertain.”</p><button onClick={() => navigator.clipboard?.writeText(PITCH)}>Copy 60-second pitch</button></div>}
+        </div><div className="chat-composer"><span>{slide === 2 ? "Reply to Relay…" : "Tell Relay what you did…"}</span><b>→</b></div></main>
+        <aside className="relay-memory"><div className="memory-label">PROJECT MEMORY</div><h2>Robot v2</h2><span className="memory-meta">shared workstream</span><div className="memory-rule" /><div className="memory-label">WHAT MATTERS</div><div className="memory-note important"><b>Dependency</b><span>Controller wiring gates autonomous testing.</span></div><div className="memory-note"><b>Decision</b><span>Intake geometry is consistent enough to move on.</span></div>{showFollowup && <div className="memory-note alert"><b>Relay is following up</b><span>Jordan owns the next unblock.</span></div>}{showBoard && <div className="memory-progress"><span>Project progress</span><b>42%</b><i><em /></i></div>}</aside>
+      </div>
+    </div>
+  );
+}
 
 export default function RoboticsDemoPage() {
-  return (
-    <main className="rd-page">
-      <header className="rd-nav">
-        <Link href="/" className="rd-brand"><span className="rd-mark">◆</span> Relay</Link>
-        <span className="rd-nav-label">Relay / Robotics workspace</span>
-        <div className="rd-deck-nav" aria-label="Demo slides">
-          <a href="#slide-1">01</a><a href="#slide-2">02</a><a href="#slide-3">03</a><a href="#slide-4">04</a>
-        </div>
-        <Link href="/app" className="rd-open">Open Relay <span>↗</span></Link>
-      </header>
-
-      <div className="rd-deck">
-      <section id="slide-1" className="rd-hero rd-slide">
-        <div className="rd-kicker"><span className="rd-live-dot" /> RELAY PRODUCT DEMO / ROBOTICS</div>
-        <h1>The work is moving.<br /><em>Relay sees how.</em></h1>
-        <p className="rd-lede">A real Relay-shaped workspace for a robotics team: capture a field note, connect the dependency, and follow the evidence to the next action.</p>
-        <div className="rd-hero-meta"><span>Designed for VEX / FIRST teams</span><span>·</span><span>One shared workstream</span><span>·</span><span>Zero status meetings</span></div>
-      </section>
-
-      <section id="slide-2" className="rd-stage rd-slide">
-        <div className="rd-stage-head"><span>RELAY WORKSPACE</span><b>From a field note to a team decision</b></div>
-        <div className="rd-console">
-          <aside className="rd-console-rail">
-            <div className="rd-rail-label">WORKSTREAMS</div>
-            <div className="rd-stream active"><span className="rd-stream-mark" />Robot v2<span className="rd-stream-count">3</span></div>
-            <div className="rd-stream"><span className="rd-stream-mark muted" />Drive base</div>
-            <div className="rd-stream"><span className="rd-stream-mark muted" />Competition prep</div>
-            <div className="rd-rail-foot">Relay is watching the work<br />so people can do the work.</div>
-          </aside>
-          <div className="rd-console-main">
-            <div className="rd-console-top"><span>Ask Relay · Robot v2</span><span className="rd-status">● IN SYNC</span></div>
-            <div className="rd-signal"><span className="rd-signal-icon">✦</span><div><b>Relay found a dependency</b><p>Jordan&apos;s controller wiring is still in progress. Alex&apos;s autonomous test is blocked by it.</p></div><button>Open task</button></div>
-            <div className="rd-console-grid">
-              <div><div className="rd-mini-label">CAPTURED</div><blockquote>“The intake is finally consistent. Controller wiring is next — autonomous test can&apos;t start until that lands.”<cite>Alex · team log · 2 min ago</cite></blockquote></div>
-              <div><div className="rd-mini-label">WHAT RELAY DID</div><ul><li>Updated intake task to Done</li><li>Kept controller task In progress</li><li>Connected the blocker to the test</li><li>Surfaced it to the right owner</li></ul></div>
-            </div>
-            <div className="rd-task-list">{TASKS.map((t) => <div className="rd-task" key={t.label}><span className={`rd-task-dot ${t.state}`} /><div><b>{t.label}</b><small>{t.note}</small></div><span className="rd-owner">{t.owner}</span></div>)}</div>
-          </div>
-        </div>
-      </section>
-
-      <section id="slide-3" className="rd-steps rd-slide">
-        <div className="rd-section-intro"><span>WHY IT LANDS</span><h2>Three moments. One shared picture.</h2></div>
-        <div className="rd-step"><span className="rd-step-num">01</span><h3>People talk normally</h3><p>No forms. No “please update Jira.” A quick field note is enough for Relay to understand what changed.</p></div>
-        <div className="rd-step"><span className="rd-step-num">02</span><h3>The work becomes legible</h3><p>Relay drafts the task, records the decision, connects dependencies, and keeps evidence beside the work.</p></div>
-        <div className="rd-step"><span className="rd-step-num">03</span><h3>Progress gets followed</h3><p>When a task is stale, blocked, or missing proof of completion, Relay asks the next useful question.</p></div>
-      </section>
-
-      <section id="slide-4" className="rd-script rd-slide">
-        <div><span className="rd-section-intro-label">PITCH SCRIPT</span><h2>Say this in the room.</h2><p>About 60 seconds. Keep the product visible while you speak.</p></div>
-        <div className="rd-script-card"><div className="rd-script-card-top"><span>RELAY / ELEVATED PITCH</span><button onClick={() => navigator.clipboard?.writeText(PITCH)}>Copy script</button></div><p>{PITCH}</p></div>
-      </section>
-      </div>
-
-      <footer className="rd-footer"><Link href="/">← Back to Relay</Link><span>Chat is for people. Work runs on Relay.</span><Link href="/app">Try the demo →</Link></footer>
-    </main>
-  );
+  const [slide, setSlide] = useState(0);
+  const next = () => setSlide((s) => Math.min(SLIDES.length - 1, s + 1));
+  const prev = () => setSlide((s) => Math.max(0, s - 1));
+  useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === "ArrowRight") next(); if (e.key === "ArrowLeft") prev(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); });
+  return <main className="demo-page"><header className="demo-nav"><Link href="/" className="demo-logo"><span>◆</span> Relay</Link><span className="demo-context">ROBOTICS TEAM / PRODUCT DEMO</span><div className="demo-nav-right"><span>{String(slide + 1).padStart(2, "0")} / {String(SLIDES.length).padStart(2, "0")}</span><Link href="/app">Open workspace ↗</Link></div></header><section className="demo-stage"><RelayWorkspace slide={slide} /><button className="arrow left" onClick={prev} disabled={slide === 0} aria-label="Previous slide">←</button><button className="arrow right" onClick={next} disabled={slide === SLIDES.length - 1} aria-label="Next slide">→</button></section><div className="demo-footer"><div className="slide-dots">{SLIDES.map((s, i) => <button key={s.label} className={i === slide ? "on" : ""} onClick={() => setSlide(i)} aria-label={`Go to ${s.label}`}><i /></button>)}</div><span>Use ← → to move through Relay</span><span className="demo-tagline">Chat is for people. Work runs on Relay.</span></div></main>;
 }
