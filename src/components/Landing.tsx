@@ -104,6 +104,7 @@ export default function Landing() {
         </Link>
         <nav className="lp-nav-links">
           <a href="#how">How it works</a>
+          <a href="/demo">Robotics demo</a>
           <a href="#why">Why Relay</a>
           <a href="#pricing">Pricing</a>
         </nav>
@@ -128,7 +129,7 @@ export default function Landing() {
           </p>
           <div className="lp-hero-actions">
             <Link href="/app" className="lp-btn lp-btn-primary lp-btn-lg">Get started free</Link>
-            <a href="#how" className="lp-btn lp-btn-ghost lp-btn-lg">See how it works</a>
+            <Link href="/demo" className="lp-btn lp-btn-ghost lp-btn-lg">See the robotics demo</Link>
           </div>
           <p className="lp-hero-note">No credit card · Free for student & lab teams</p>
         </div>
