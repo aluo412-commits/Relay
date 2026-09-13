@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { normalizeDue } from "./dates";
 import type {
   RelayTurn,
   ConnectorSuggestion,
@@ -246,7 +247,7 @@ const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
                 priority: { type: "string", enum: ["low", "medium", "high"] },
                 acceptanceCriteria: { type: "array", items: { type: "string" } },
                 dependencies: { type: "string" },
-                due: { type: "string" },
+                due: { type: "string", description: "deadline normalized as YYYY-MM-DD; when the user gives a relative date, resolve it from today's date in the system context" },
                 status: { type: "string", enum: ["new", "inprogress", "blocked", "done"] },
               },
               required: ["name"],
@@ -376,7 +377,7 @@ function buildConnector(a: ToolArgs): ConnectorSuggestion | null {
 }
 
 // Interpret a single tool call into either coaching fields or a publishable proposal.
-function proposalFromArgs(name: string, a: ToolArgs): AgentProposal | null {
+function proposalFromArgs(name: string, a: ToolArgs, context: string): AgentProposal | null {
   if (name === "propose_work_record") {
     return {
       update: {
@@ -415,7 +416,12 @@ function proposalFromArgs(name: string, a: ToolArgs): AgentProposal | null {
       update: null,
       share: null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tasks: (a.tasks as any[]) || [],
+      tasks: ((a.tasks as any[]) || []).map((task) => ({
+        ...task,
+        // Models often understand the deadline but omit the optional tool field.
+        // Resolve from the task wording and original user request before publishing.
+        due: normalizeDue(typeof task.due === "string" ? task.due : undefined, [task.name, task.objective, task.note, ...(Array.isArray(task.acceptanceCriteria) ? task.acceptanceCriteria : []), context].filter(Boolean).join("\n")),
+      })),
       actions: [],
       connector: null,
       draftId: (a.draftId as string) || null,
@@ -436,7 +442,8 @@ function buildAgentResult(
   calls: ToolCallLike[],
   msgContent: string,
   rawToolCalls: { name: string; arguments: string }[],
-  finishReason: string | null
+  finishReason: string | null,
+  context = ""
 ): AgentResult {
   const proposals: AgentProposal[] = [];
   const documents: AgentDocument[] = [];
@@ -511,7 +518,7 @@ function buildAgentResult(
         });
       }
     } else {
-      const p = proposalFromArgs(name, a);
+      const p = proposalFromArgs(name, a, context);
       if (p) {
         proposals.push(p);
         if (!reply) reply = (a.reply as string) || "";
@@ -624,7 +631,7 @@ export async function runAgentTurn(
   const msg = completion.choices[0]?.message;
   const calls = msg?.tool_calls ?? [];
   const rawToolCalls = calls.map((c) => ({ name: c?.function?.name ?? "?", arguments: c?.function?.arguments ?? "" }));
-  return buildAgentResult(calls, msg?.content ?? "", rawToolCalls, completion.choices[0]?.finish_reason ?? null);
+  return buildAgentResult(calls, msg?.content ?? "", rawToolCalls, completion.choices[0]?.finish_reason ?? null, [...history].reverse().find((m) => m.role === "user")?.content ?? "");
 }
 
 /**
@@ -684,7 +691,7 @@ export async function runAgentTurnStream(
     .sort((a, b) => a[0] - b[0])
     .map(([, v]) => ({ function: { name: v.name, arguments: v.args } }));
   const rawToolCalls = calls.map((c) => ({ name: c.function.name || "?", arguments: c.function.arguments || "" }));
-  return buildAgentResult(calls, content, rawToolCalls, finishReason);
+  return buildAgentResult(calls, content, rawToolCalls, finishReason, [...history].reverse().find((m) => m.role === "user")?.content ?? "");
 }
 
 /** Generic: ask the model for a JSON object of an arbitrary shape. Returns null on parse failure. */

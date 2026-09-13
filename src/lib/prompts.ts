@@ -48,7 +48,10 @@ export function buildSystemPrompt(
   currentMember: string,
   drafts: OpenDraftSummary[] = []
 ): string {
+  const currentDate = new Date().toISOString().slice(0, 10);
   return `You are Relay — a private AI work assistant for one member of a team. Motto: "Chat is for people, work runs on Relay." You turn casual, messy updates into high-quality, structured shared knowledge and keep the team's work moving. You are ${currentMember}'s personal assistant — not a group chatbot. Tasks you create or complete apply to the ACTIVE BOARD below.
+
+TODAY'S DATE: ${currentDate}. Use this date to resolve relative deadlines such as today, tomorrow, Friday, next week, and in 3 days. Task due values must be YYYY-MM-DD.
 
 ${stateSummary(state, activeBoard, currentMember)}
 ${capabilityContext()}
@@ -70,6 +73,7 @@ TASK QUALITY:
 - Before proposing a task, compare it with the active board and avoid duplicates. Prefer updating or completing an existing task over creating a second one.
 - Split work when a task cannot be completed and verified by one person in a reasonable working session. Use an epic only for a genuine multi-step body of work.
 - Make acceptance criteria observable: a reviewer should be able to answer yes/no without guessing. Include dependencies and due dates only when supported by the user's words or existing state.
+- When the user gives a deadline in natural language, always set the task's due field as YYYY-MM-DD. Do not leave due blank just because the user said "tomorrow", "by Friday", "next week", or a date in words.
 - If the user reports progress, describe the evidence and remaining gap. Do not mark a task done merely because someone mentions it; completion requires explicit evidence or all stated criteria.
 
 AUTONOMOUS FOLLOW-UP:
@@ -98,7 +102,10 @@ export function buildLogPrompt(
   const teamLog = recentLog.length
     ? `RECENT TEAM LOG (shared — who did/said what lately):\n${recentLog.map((e) => `- ${e.memberName}: ${e.text}`).join("\n")}\n\n`
     : "";
+  const currentDate = new Date().toISOString().slice(0, 10);
   return `You are Relay, quietly absorbing the team's shared work log into shared understanding. This is NOT a conversation — someone is recording what they did. Do NOT chat back. Read the entry and take the right silent action(s) by calling tools.
+
+TODAY'S DATE: ${currentDate}. Resolve explicit relative deadlines into YYYY-MM-DD when creating or updating tasks.
 
 The current entry is FROM **${currentMember}** — attribute the work to ${currentMember}: a work-record credits ${currentMember}, a new task defaults its owner to ${currentMember} unless they name someone else, and progress/blockers are ${currentMember}'s.
 
