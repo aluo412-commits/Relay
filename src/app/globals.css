@@ -185,7 +185,9 @@ button { font-family: inherit; }
 .ws-head .t { font-weight: 700; font-size: 0.95rem; }
 .ws-head .t span { display: block; font-family: var(--font-mono); font-size: 0.66rem; color: var(--faint); font-weight: 400; }
 
-.stream { flex: 1; overflow-y: auto; padding: 22px 20px; display: flex; flex-direction: column; gap: 15px; }
+.stream { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 20px; display: flex; flex-direction: column; gap: 15px; }
+/* Chat cards keep their content height; the stream scrolls instead of crushing them. */
+.stream > * { flex-shrink: 0; }
 .msg { display: flex; gap: 10px; align-items: flex-start; max-width: 90%; animation: rise 0.3s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
 @keyframes rise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .msg { animation: none; } }

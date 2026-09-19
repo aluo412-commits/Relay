@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { interpolateSpotlight, type SpotlightRect } from "@/lib/spotlight";
 
 const CHAPTERS = [
   { title: "Click the message bar", text: "Click the highlighted input. Watch the sample request type itself, then click Send.", target: ".workspace .composer" },
@@ -11,12 +12,19 @@ const CHAPTERS = [
   { title: "Inspect the result yourself", text: "Click the controller task to inspect its status, evidence and deadline. Autonomous testing remains blocked. No production data has changed.", target: ".kanban" },
 ];
 
-type Rect = { top: number; left: number; right: number; bottom: number };
+type Rect = SpotlightRect;
+function tourTarget(selector: string, step: number): Element | null {
+  if (step === 5 && document.querySelector(".modal")) return document.querySelector(".modal");
+  const matches = document.querySelectorAll(selector);
+  if (selector.endsWith(".msg.ai")) return matches[matches.length - 1] ?? document.querySelector(".workspace .stream");
+  return matches[0] ?? null;
+}
 export default function ScriptedDemoGuide({ step, mode, typing, sending, streaming, logging, publishing, draftReady, published, onOpenDraft, onStartLog, onEvaluate, onBoard, onExplore }: {
   step: number; mode: "chat" | "log"; typing: boolean; sending: boolean; streaming: boolean; logging: boolean; publishing: boolean; draftReady: boolean; published: boolean;
   onOpenDraft: () => void; onStartLog: () => void; onEvaluate: () => Promise<void>; onBoard: () => void; onExplore: () => void;
 }) {
   const [rect, setRect] = useState<Rect | null>(null);
+  const rectRef = useRef<Rect | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [minimized, setMinimized] = useState(false);
@@ -25,10 +33,10 @@ export default function ScriptedDemoGuide({ step, mode, typing, sending, streami
     if (step === 0 && sending) return {
       title: streaming ? "Watch the response take shape" : "Your request has arrived",
       text: streaming ? "Relay is explaining the task, owner and deadline. Read along—the editor won't open over the response." : "First the request, then the response. This brief pause is part of the scripted walkthrough, not a live AI call.",
-      target: ".workspace .stream .msg.ai:last-child",
+      target: ".workspace .stream .msg.ai",
     };
-    if (step === 0 && draftReady) return { title: "Read the reply, then open the draft", text: "The task is only a draft—not published. When you're ready, open it to inspect the owner, due date and acceptance criteria.", target: ".workspace .stream .msg.ai:last-child" };
-    if (step === 1 && published) return { title: "Your task is now on the board", text: "Publishing is the moment the draft becomes shared work. Take a moment to read the confirmation, then try recording progress.", target: ".workspace .stream .msg.ai:last-child" };
+    if (step === 0 && draftReady) return { title: "Read the reply, then open the draft", text: "The task is only a draft—not published. When you're ready, open it to inspect the owner, due date and acceptance criteria.", target: ".workspace .stream .msg.ai" };
+    if (step === 1 && published) return { title: "Your task is now on the board", text: "Publishing is the moment the draft becomes shared work. Take a moment to read the confirmation, then try recording progress.", target: ".workspace .stream .msg.ai" };
     if (step === 1 && publishing) return { ...base, title: "Adding your reviewed task…", text: "The draft keeps your edits. Next you'll see a confirmation before moving on to Log." };
     if (step === 2 && mode === "chat") return { title: "Now switch from Chat to Log", text: "Chat is where you ask Relay to plan work. Log is where you record what happened. Click the highlighted Log tab yourself—we'll stay here until you do.", target: ".mode-toggle" };
     if (step === 2 && logging) return { title: "Reading the progress evidence…", text: "The motors respond, but the encoder check is still missing. Watch what changes—and what stays blocked.", target: ".log-stream" };
@@ -42,7 +50,7 @@ export default function ScriptedDemoGuide({ step, mode, typing, sending, streami
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") { setMinimized(true); return; }
       if (event.key !== "Tab") return;
-      const target = step === 5 ? document.querySelector(".modal") ?? document.querySelector(chapter.target) : document.querySelector(chapter.target);
+      const target = tourTarget(chapter.target, step);
       const guide = document.querySelector(".tour-guide");
       const focusable = [target, guide].flatMap(root => root ? Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]')) : []).filter(el => el.getClientRects().length > 0);
       if (!focusable.length) return;
@@ -57,10 +65,15 @@ export default function ScriptedDemoGuide({ step, mode, typing, sending, streami
     if (!chapter || minimized) { setRect(null); return; }
     let frame = 0;
     let lastTarget: Element | null = null;
+    let from: Rect | null = null;
+    let transitionStarted = 0;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const measure = () => {
       // A task detail opened from the board becomes the new interaction target.
-      const el = step === 5 ? document.querySelector(".modal") ?? document.querySelector(chapter.target) : document.querySelector(chapter.target);
+      const el = tourTarget(chapter.target, step);
       if (el && el !== lastTarget) {
+        from = rectRef.current;
+        transitionStarted = performance.now();
         lastTarget = el;
         el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
       }
@@ -72,7 +85,10 @@ export default function ScriptedDemoGuide({ step, mode, typing, sending, streami
           if (stream) stream.scrollTop = 0;
         }
         const r = el.getBoundingClientRect();
-        const next = { top: Math.max(0, r.top - 6), left: Math.max(0, r.left - 6), right: Math.min(innerWidth, r.right + 6), bottom: Math.min(innerHeight, r.bottom + 6) };
+        const destination = { top: Math.max(0, r.top - 6), left: Math.max(0, r.left - 6), right: Math.min(innerWidth, r.right + 6), bottom: Math.min(innerHeight, r.bottom + 6) };
+        const progress = reducedMotion.matches ? 1 : Math.min(1, (performance.now() - transitionStarted) / 550);
+        const next = from && progress < 1 ? interpolateSpotlight(from, destination, progress) : destination;
+        rectRef.current = next;
         setRect(old => old && Object.keys(next).every(k => old[k as keyof Rect] === next[k as keyof Rect]) ? old : next);
       } else setRect(null);
       frame = requestAnimationFrame(measure);
@@ -89,7 +105,7 @@ export default function ScriptedDemoGuide({ step, mode, typing, sending, streami
   ] : [{ inset: 0 }];
   if (!chapter || minimized) return <div className="tour-badge">Scripted sandbox · no AI / no saved changes <button onClick={() => { if (!chapter) location.reload(); else setMinimized(false); }}>{chapter ? "Resume guide" : "Restart tour"}</button><a href="/">Exit</a></div>;
   return <>
-    <div className="tour-shade" aria-hidden="true">{panels.map((style, i) => <div key={i} style={style} />)}</div>
+    <div className="tour-shade" data-waiting={!rect} aria-hidden="true">{panels.map((style, i) => <div key={i} style={style} />)}</div>
     {rect && <div className="tour-outline" aria-hidden="true" style={{ top: rect.top, left: rect.left, width: rect.right - rect.left, height: rect.bottom - rect.top }} />}
     <aside className={`tour-guide tour-step-${step}${reading ? " tour-reading" : ""}${step === 2 && mode === "chat" ? " tour-mode-switch" : ""}`} aria-label="Relay guided demo">
       <header><span>SCRIPTED DEMO · {step + 1} / {CHAPTERS.length}</span><button onClick={() => setMinimized(true)} aria-label="Minimize demo guide">−</button></header>

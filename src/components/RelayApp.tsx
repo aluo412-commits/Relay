@@ -4112,7 +4112,7 @@ function BriefingCard({
                       <span className="k-tag">{k.tag}</span>
                       {k.importance !== "normal" ? <ImportanceBadge level={k.importance} /> : null}
                     </span>
-                    <span className="bl-name news-text">{k.text}</span>
+                    <div className="bl-name news-text"><RichText text={k.text} /></div>
                   </li>
                 ))}
                 {b.newUpdates.map((u, i) => (
@@ -4121,7 +4121,7 @@ function BriefingCard({
                       {u.author ? `${u.author}: ` : ""}
                       {u.title} — {u.status}
                     </span>
-                    {u.summary ? <span className="bl-note">{u.summary}</span> : null}
+                    {u.summary ? <div className="bl-note"><RichText text={u.summary} /></div> : null}
                   </li>
                 ))}
               </ul>
