@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createDemoTransport, DEMO_REQUEST, DEMO_LOG } from "@/lib/demo";
+import ScriptedDemoGuide from "./ScriptedDemoGuide";
 import { dueState, formatDue, compareDue } from "@/lib/dates";
 import type {
   ProjectState,
@@ -225,6 +227,28 @@ const DRAFT_KIND_LABEL: Record<string, string> = {
 };
 
 export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
+  // Instance-local transport: never intercept global fetch or touch a real session.
+  const fetch = useMemo(() => demoMode ? createDemoTransport() : globalThis.fetch.bind(globalThis), [demoMode]);
+  const [demoStep, setDemoStep] = useState(0);
+  const [demoTyping, setDemoTyping] = useState(false);
+  const demoTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => () => { if (demoTimer.current) clearInterval(demoTimer.current); }, []);
+  function typeDemoSample(log = false) {
+    if (!demoMode || demoTyping || (log ? logInput : input)) return;
+    const sample = log ? DEMO_LOG : DEMO_REQUEST;
+    const update = log ? setLogInput : setInput;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { update(sample); return; }
+    setDemoTyping(true);
+    let cursor = 0;
+    demoTimer.current = setInterval(() => {
+      update(sample.slice(0, ++cursor));
+      if (cursor >= sample.length) {
+        if (demoTimer.current) clearInterval(demoTimer.current);
+        demoTimer.current = null;
+        setDemoTyping(false);
+      }
+    }, 18);
+  }
   const [state, setState] = useState<ProjectState | null>(null);
   const [memberId, setMemberId] = useState<string>("");
   const [session, setSession] = useState<Session | null>(null);
@@ -297,6 +321,11 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
   const [flash, setFlash] = useState<string[]>([]);
   const streamRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!demoMode) return;
+    const textarea = document.querySelector<HTMLTextAreaElement>(".scripted-demo .composer textarea");
+    if (textarea) autoGrow(textarea);
+  }, [demoMode, input, logInput]);
   const attachInputRef = useRef<HTMLInputElement>(null);
 
   const currentMember = state?.members.find((m) => m.id === memberId);
@@ -810,6 +839,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
 
       if (data.state) setState(data.state);
       addDrafts(Array.isArray(data.drafts) ? data.drafts : []);
+      if (demoMode && data.drafts?.length) setDemoStep(1);
       addArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
       if (data.asked) {
         showToast(data.asked === 1 ? "Question sent" : `${data.asked} questions sent`);
@@ -840,7 +870,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
     // Attachments (from the composer) only ride along with a fresh message, not a
     // quick-reply/template send that passes textArg.
     const attachments = textArg === undefined ? pendingAttachments : [];
-    if ((!text && attachments.length === 0) || sending || !memberId) return;
+    if ((!text && attachments.length === 0) || sending || demoTyping || !memberId) return;
     setInput("");
     setPendingAttachments([]);
     if (inputRef.current) inputRef.current.style.height = "auto";
@@ -1252,6 +1282,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
         flashByNames(a.draft.tasks.map((t) => t.name));
       }
       showToast(PUBLISH_TOAST[a.draft.kind]);
+      if (demoMode) { setDemoStep(2); setView("chat"); setMode("log"); setMobileTab("chat"); }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1339,7 +1370,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
   // Log-first capture: record the entry, let the agent silently sync / draft.
   async function postLog() {
     const text = logInput.trim();
-    if (!text || logging || !memberId) return;
+    if (!text || logging || demoTyping || !memberId) return;
     setLogInput("");
     setLogging(true);
     try {
@@ -1351,6 +1382,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Log failed");
       if (data.entry) setLogEntries((e) => [...e, data.entry]);
+      if (demoMode) setDemoStep(3);
       if (data.state) setState(data.state);
       addArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
     } catch (e) {
@@ -1652,7 +1684,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
   );
 
   return (
-    <div className="app">
+    <div className={demoMode ? "app scripted-demo" : "app"}>
       <header className="topbar">
         <div className="brand">
           <BrandMark />
@@ -2035,6 +2067,8 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
               <div className="composer">
                 <textarea
                   value={logInput}
+                  onFocus={() => { if (demoMode && demoStep === 2) typeDemoSample(true); }}
+                  readOnly={demoTyping}
                   onChange={(e) => {
                     setLogInput(e.target.value);
                     autoGrow(e.target);
@@ -2048,7 +2082,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
                   placeholder={`What are you working on, ${currentMember.name}? (logs to ${activeBoard?.name ?? "the board"})`}
                   rows={1}
                 />
-                <button className="send" onClick={() => postLog()} disabled={logging || !logInput.trim()} aria-label="Log">
+                <button className="send" onClick={() => postLog()} disabled={logging || demoTyping || !logInput.trim()} aria-label="Log">
                   <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
                     <path d="M2 8h10M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -2340,6 +2374,8 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
             </button>
             <textarea
               ref={inputRef}
+              onFocus={() => { if (demoMode && demoStep === 0) typeDemoSample(); }}
+              readOnly={demoTyping}
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
@@ -2364,7 +2400,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
               <button
                 className="send"
                 onClick={() => send()}
-                disabled={uploading || (!input.trim() && pendingAttachments.length === 0)}
+                disabled={demoTyping || uploading || (!input.trim() && pendingAttachments.length === 0)}
                 aria-label="Send"
               >
                 <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
@@ -2814,97 +2850,20 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
 
       <div className={`toast${toast ? " show" : ""}`}>{toast}</div>
       {demoMode ? (
-        <DemoGuide
-          mode={mode}
-          view={view}
-          onMode={setMode}
-          onView={setView}
-          onOpenSources={() => setFilesOpen(true)}
-          onStartTask={() => setMode("chat")}
-          onStartLog={() => setMode("log")}
-          onStartQuestion={() => setMode("chat")}
+        <ScriptedDemoGuide
+          step={demoStep}
+          typing={demoTyping}
+          onEvaluate={async () => {
+            const response = await fetch("/api/reconcile", { method: "POST" });
+            const data = await response.json();
+            setSyncItems(data.items ?? []);
+            setView("chat"); setMode("chat"); setMobileTab("chat"); setDemoStep(4);
+          }}
+          onBoard={() => { setView("board"); setDemoStep(5); }}
+          onExplore={() => setDemoStep(6)}
         />
       ) : null}
     </div>
-  );
-}
-
-function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onStartLog, onStartQuestion }: {
-  mode: "chat" | "log";
-  view: "chat" | "boards" | "board";
-  onMode: (mode: "chat" | "log") => void;
-  onView: (view: "chat" | "boards" | "board") => void;
-  onOpenSources: () => void;
-  onStartTask: () => void;
-  onStartLog: () => void;
-  onStartQuestion: () => void;
-}) {
-  const [step, setStep] = useState(0);
-  const [open, setOpen] = useState(true);
-  const steps = [
-    {
-      label: "01 / Ask Relay",
-      title: "Give Relay a real request",
-      body: "Click Ask Relay, write your own task request, and send it. Include a deadline or owner to see Relay structure it in the existing draft panel.",
-      example: "Try: Create a task to verify autonomous testing by Friday.",
-      action: onStartTask,
-      cta: "Open Ask Relay"
-    },
-    {
-      label: "02 / Publish",
-      title: "Review before it becomes shared work",
-      body: "After you send the request, edit the task draft and publish it yourself. Relay never silently changes the board from a chat proposal.",
-      example: "Look for: owner · due date · acceptance criteria",
-      action: () => onMode("chat"),
-      cta: "Show the draft step"
-    },
-    {
-      label: "03 / Log",
-      title: "Record progress without a status form",
-      body: "Switch to Log and write what actually happened. Relay evaluates the evidence and can sync an unambiguous status change.",
-      example: "Try: Finished the intake consistency test; three repeatable cycles passed.",
-      action: onStartLog,
-      cta: "Open Log"
-    },
-    {
-      label: "04 / Ask a teammate",
-      title: "Route a question, not a reminder",
-      body: "Switch back to Ask Relay and ask Relay to check with a teammate. The question is directed, visible, and the answer comes back into the same workspace.",
-      example: "Try: Ask Jordan whether the motor controller is ready.",
-      action: onStartQuestion,
-      cta: "Open Ask Relay"
-    },
-    {
-      label: "05 / Boards + Sync",
-      title: "Inspect the shared state",
-      body: "Open Boards to see owners, due dates, dependencies, and blockers. Return to Ask Relay to see In sync and any evidence-based follow-up.",
-      action: () => { onView("boards"); onMode("chat"); },
-      cta: "Open Boards",
-      example: "Click a task to inspect its dependency and due date.",
-    },
-    {
-      label: "06 / Sources",
-      title: "Give Relay authoritative context",
-      body: "Open Sources to attach PDFs, images, and team references. Relay uses them when answering, drafting, and evaluating work.",
-      example: "Upload a team reference and attach it to your next message.",
-      action: onOpenSources,
-      cta: "Open Sources",
-    },
-  ];
-  const current = steps[step];
-  if (!open) return <button className="demo-guide-tab" onClick={() => setOpen(true)}>Demo guide</button>;
-  return (
-    <aside className="demo-guide" aria-label="Relay guided demo">
-      <div className="demo-guide-top"><span>GUIDED DEMO</span><button onClick={() => setOpen(false)} aria-label="Minimize demo guide">×</button></div>
-      <div className="demo-guide-progress"><i style={{ width: `${((step + 1) / steps.length) * 100}%` }} /></div>
-      <div className="demo-guide-label">{current.label}</div>
-      <h2>{current.title}</h2>
-      <p>{current.body}</p>
-      {current.example ? <div className="demo-guide-example">{current.example}</div> : null}
-      <button className="demo-guide-action" onClick={() => current.action()}>{current.cta} <span>→</span></button>
-      <div className="demo-guide-footer"><button disabled={step === 0} onClick={() => setStep(step - 1)}>← Back</button><span>{step + 1} of {steps.length}</span><button disabled={step === steps.length - 1} onClick={() => setStep(step + 1)}>Next →</button></div>
-      <div className="demo-guide-state">{mode === "log" ? "Log mode" : view === "boards" || view === "board" ? "Board view" : "Ask Relay"}</div>
-    </aside>
   );
 }
 
