@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadState, proposalsToDrafts, normalizeStatus } from "@/lib/state";
 import { buildSystemPrompt } from "@/lib/prompts";
-import { runAgentTurnStream, selectRelevantCompactions } from "@/lib/minimax";
+import { runAgentTurnStream } from "@/lib/minimax";
+import { selectRecallIds } from "@/lib/recall";
 import { buildPptxBase64, presentationMarkdown } from "@/lib/pptx";
 import { createQuestion } from "@/lib/questions";
 import { loadSourceContext, loadAttachedContext } from "@/lib/files";
@@ -44,6 +45,7 @@ async function resolveConversation(
 // POST /api/chat  -> streams NDJSON: {type:"delta",text} … then {type:"done", …}.
 // { message?, boardId?, conversationId?, attachedFileIds?, regenerate?, editMessageId?, continue? }
 export async function POST(req: NextRequest) {
+  const startedAt = performance.now();
   try {
     const ctx = await getContext();
     if (!ctx) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -68,13 +70,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const state = await loadState(ctx.project.id);
+    const [state, attached, sources, compactions] = await Promise.all([
+      loadState(ctx.project.id),
+      loadAttachedContext(ctx.project.id, attachIds),
+      loadSourceContext(ctx.project.id),
+      prisma.compactEntry.findMany({
+        where: { projectId: ctx.project.id, memberId },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: { id: true, heading: true, summary: true },
+      }),
+    ]);
     const member = ctx.member;
     const activeBoard = state.boards.find((b) => b.id === body.boardId) ?? state.boards[0];
     if (!activeBoard) return NextResponse.json({ error: "No board found" }, { status: 404 });
     const chatBoardId = activeBoard.id;
 
-    const attached = await loadAttachedContext(state.project.id, attachIds);
     const userText =
       trimmed || (attached.names.length ? "Please analyze the attached file(s)." : "");
     const storedContent = attached.names.length
@@ -132,26 +143,21 @@ export async function POST(req: NextRequest) {
 
     // Compacted context recall.
     let recalled = "";
-    const compactions = await prisma.compactEntry.findMany({
-      where: { projectId: state.project.id, memberId },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, heading: true, summary: true, content: true },
-    });
-    if (compactions.length && userText) {
-      const relevantIds = await selectRelevantCompactions(
-        userText,
-        compactions.map((c) => ({ id: c.id, heading: c.heading, summary: c.summary })),
-        state.project.model
-      );
-      const chosen = compactions.filter((c) => relevantIds.includes(c.id));
+    const recallQuery = userText || [...history].reverse().find(m => m.role === "user")?.content || "";
+    if (compactions.length && recallQuery) {
+      const relevantIds = selectRecallIds(recallQuery, compactions);
+      const chosen = await prisma.compactEntry.findMany({
+        where: { projectId: state.project.id, memberId, id: { in: relevantIds } },
+        orderBy: { createdAt: "desc" },
+        select: { heading: true, content: true },
+      });
       if (chosen.length) {
         recalled =
           "\n\nRELEVANT PAST CONTEXT (compacted earlier, recalled because it fits this message — use it, don't repeat it verbatim):\n" +
-          chosen.map((c) => `### ${c.heading}\n${c.content}`).join("\n\n");
+          chosen.map((c) => `### ${c.heading}\n${c.content.slice(0, 4000)}`).join("\n\n").slice(0, 12000);
       }
     }
 
-    const sources = await loadSourceContext(state.project.id);
     const systemPrompt =
       buildSystemPrompt(state, activeBoard, member.name) + sources + recalled + attached.block;
 
@@ -160,10 +166,13 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         const emit = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        const contextMs = Math.round(performance.now() - startedAt);
+        let firstDeltaMs: number | null = null;
         try {
-          const result = await runAgentTurnStream(systemPrompt, history, state.project.model, (text) =>
-            emit({ type: "delta", text })
-          );
+          const result = await runAgentTurnStream(systemPrompt, history, state.project.model, (text) => {
+            firstDeltaMs ??= Math.round(performance.now() - startedAt);
+            emit({ type: "delta", text });
+          });
 
           // Bump conversation updatedAt + set title from first message if still default.
           const convoMeta = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { title: true } });
@@ -274,12 +283,15 @@ export async function POST(req: NextRequest) {
             drafts,
             artifacts,
             asked: askedCount,
-            state,
+            // Chat produces drafts; don't overwrite live shared state with the
+            // snapshot captured before the (potentially long) model response.
+
           });
         } catch (err) {
           console.error("chat stream error:", err);
           emit({ type: "error", error: "Relay couldn't reach the model. " + (err as Error).message });
         } finally {
+          console.info("relay.chat.timing", { contextMs, firstDeltaMs, totalMs: Math.round(performance.now() - startedAt), model: state.project.model });
           controller.close();
         }
       },

@@ -23,10 +23,10 @@ export async function GET() {
     const rows = await prisma.logEntry.findMany({
       where: { projectId: ctx.project.id },
       include: { member: true },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 100,
     });
-    return NextResponse.json({ entries: rows.map((r) => toDTO(r, r.member?.name ?? "?")) });
+    return NextResponse.json({ entries: rows.reverse().map((r) => toDTO(r, r.member?.name ?? "?")) });
   } catch (err) {
     console.error("log GET error:", err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
@@ -47,7 +47,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "text is required" }, { status: 400 });
     }
 
-    const state = await loadState(ctx.project.id);
+    const [state, sources] = await Promise.all([
+      loadState(ctx.project.id),
+      loadSourceContext(ctx.project.id),
+    ]);
     const member = ctx.member;
     const activeBoard = state.boards.find((b) => b.id === boardId) ?? state.boards[0];
 
@@ -71,7 +74,6 @@ export async function POST(req: NextRequest) {
     let artifacts: Array<{ title: string; filename: string; markdown: string; kind: string; pptxBase64?: string }> = [];
     let syncedSummary: string | null = null;
     if (activeBoard) {
-      const sources = await loadSourceContext(state.project.id);
       const prompt = buildLogPrompt(state, activeBoard, member.name, recentLog) + sources;
       const result = await runAgentTurn(prompt, [{ role: "user", content: text.trim() }], state.project.model);
 

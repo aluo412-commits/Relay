@@ -93,6 +93,10 @@ button { font-family: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: -0.02em; font-size: 1.08rem; }
 .proj-tag { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); border-left: 1px solid var(--border); padding-left: 14px; letter-spacing: 0.02em; }
 .proj-tag b { color: var(--text); font-weight: 600; }
+.live-status { flex: none; white-space: nowrap; font: 500 .62rem var(--font-mono); color: var(--muted); }
+.live-status.connected { color: var(--ai); }
+.live-status.retrying { color: var(--warn); }
+@media (max-width: 800px) { .live-status { display: none; } }
 .topbar .spacer { flex: 1; }
 
 .switcher { display: flex; align-items: center; gap: 6px; }

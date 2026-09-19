@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createDemoTransport, DEMO_REQUEST, DEMO_LOG } from "@/lib/demo";
 import ScriptedDemoGuide from "./ScriptedDemoGuide";
+import { trackedFetch, startWorkspaceSync, keepIfEqual } from "@/lib/liveSync";
 import { dueState, formatDue, compareDue } from "@/lib/dates";
 import type {
   ProjectState,
@@ -228,7 +229,9 @@ const DRAFT_KIND_LABEL: Record<string, string> = {
 
 export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
   // Instance-local transport: never intercept global fetch or touch a real session.
-  const fetch = useMemo(() => demoMode ? createDemoTransport() : globalThis.fetch.bind(globalThis), [demoMode]);
+  const mutationClock = useRef({ revision: 0, pending: 0 });
+  const fetch = useMemo(() => demoMode ? createDemoTransport() : trackedFetch(globalThis.fetch.bind(globalThis), mutationClock.current), [demoMode]);
+  const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "retrying">("connecting");
   const [demoStep, setDemoStep] = useState(0);
   const [demoTyping, setDemoTyping] = useState(false);
   const demoTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -463,6 +466,38 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
     if (memberId) loadMember(memberId);
   }, [memberId, loadMember]);
 
+  // Shared data updates independently of chat, drafts and the selected workstream.
+  useEffect(() => {
+    if (demoMode || !memberId) return;
+    setLiveStatus("connecting");
+    const sync = startWorkspaceSync<{
+      memberId: string; state: ProjectState; entries: LogEntryDTO[];
+      notifications: NotificationDTO[]; unread: number;
+    }>({
+      request: fetch,
+      clock: mutationClock.current,
+      visible: () => document.visibilityState !== "hidden" && navigator.onLine,
+      onStatus: setLiveStatus,
+      apply: (data) => {
+        if (data.memberId !== memberId) return;
+        setState(previous => keepIfEqual(previous, data.state));
+        setLogEntries(previous => keepIfEqual(previous, data.entries));
+        setNotifications(previous => keepIfEqual(previous, data.notifications));
+        setUnread(data.unread);
+        setActiveBoardId(previous => data.state.boards.some(b => b.id === previous) ? previous : data.state.boards[0]?.id ?? "");
+      },
+    });
+    document.addEventListener("visibilitychange", sync.refresh);
+    window.addEventListener("focus", sync.refresh);
+    window.addEventListener("online", sync.refresh);
+    return () => {
+      sync.stop();
+      document.removeEventListener("visibilitychange", sync.refresh);
+      window.removeEventListener("focus", sync.refresh);
+      window.removeEventListener("online", sync.refresh);
+    };
+  }, [demoMode, memberId, fetch]);
+
   // Keep the "in sync" feed current after any state-changing action, and on a light
   // interval so ambient awareness stays live without a manual refresh.
   const refreshSync = useCallback(() => {
@@ -560,7 +595,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
   useEffect(() => {
     let cancelled = false;
     setCheckingAi(true);
-    fetch("/api/ai-health")
+    fetch("/api/ai-health?passive=1")
       .then((x) => x.json())
       .then((r) => {
         if (!cancelled) setAiDown(r.ok ? null : r.error || "AI is unavailable.");
@@ -1690,6 +1725,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
           <BrandMark />
           Relay
         </div>
+        {!demoMode && <span className={`live-status ${liveStatus}`} role="status" title="Shared tasks, records and logs refresh every 5 seconds while this tab is visible.">{liveStatus === "connected" ? "● Auto-sync" : liveStatus === "retrying" ? "◌ Reconnecting" : "◌ Connecting"}</span>}
         <div className="proj-tag">
           <b>{state.project.name}</b>
           {state.project.deadline ? ` · ${state.project.deadline}` : ""}
