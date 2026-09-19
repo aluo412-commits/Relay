@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createDemoTransport, DEMO_REQUEST, DEMO_LOG } from "@/lib/demo";
+import { DEMO_PACING } from "@/lib/demoPlayback";
 import ScriptedDemoGuide from "./ScriptedDemoGuide";
 import { trackedFetch, startWorkspaceSync, keepIfEqual } from "@/lib/liveSync";
 import { dueState, formatDue, compareDue } from "@/lib/dates";
@@ -230,12 +231,17 @@ const DRAFT_KIND_LABEL: Record<string, string> = {
 export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
   // Instance-local transport: never intercept global fetch or touch a real session.
   const mutationClock = useRef({ revision: 0, pending: 0 });
-  const fetch = useMemo(() => demoMode ? createDemoTransport() : trackedFetch(globalThis.fetch.bind(globalThis), mutationClock.current), [demoMode]);
+  const fetch = useMemo(() => demoMode ? createDemoTransport({ pace: 1, reducedMotion: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches }) : trackedFetch(globalThis.fetch.bind(globalThis), mutationClock.current), [demoMode]);
   const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "retrying">("connecting");
   const [demoStep, setDemoStep] = useState(0);
   const [demoTyping, setDemoTyping] = useState(false);
+  const [demoPendingDrafts, setDemoPendingDrafts] = useState<DraftPayload[]>([]);
+  const [demoPublished, setDemoPublished] = useState(false);
   const demoTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => () => { if (demoTimer.current) clearInterval(demoTimer.current); }, []);
+  useEffect(() => () => {
+    if (demoTimer.current) clearInterval(demoTimer.current);
+    abortRef.current?.abort();
+  }, []);
   function typeDemoSample(log = false) {
     if (!demoMode || demoTyping || (log ? logInput : input)) return;
     const sample = log ? DEMO_LOG : DEMO_REQUEST;
@@ -250,7 +256,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
         demoTimer.current = null;
         setDemoTyping(false);
       }
-    }, 18);
+    }, DEMO_PACING.inputCharacterMs);
   }
   const [state, setState] = useState<ProjectState | null>(null);
   const [memberId, setMemberId] = useState<string>("");
@@ -756,6 +762,7 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
     }
 
     setSending(true);
+    if (demoMode) setDemoPendingDrafts([]);
     setStreaming(false);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -873,8 +880,10 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
       });
 
       if (data.state) setState(data.state);
-      addDrafts(Array.isArray(data.drafts) ? data.drafts : []);
-      if (demoMode && data.drafts?.length) setDemoStep(1);
+      if (demoMode) {
+        // Let the user read the response; only their next click opens the editor.
+        setDemoPendingDrafts(Array.isArray(data.drafts) ? data.drafts : []);
+      } else addDrafts(Array.isArray(data.drafts) ? data.drafts : []);
       addArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
       if (data.asked) {
         showToast(data.asked === 1 ? "Question sent" : `${data.asked} questions sent`);
@@ -1317,7 +1326,11 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
         flashByNames(a.draft.tasks.map((t) => t.name));
       }
       showToast(PUBLISH_TOAST[a.draft.kind]);
-      if (demoMode) { setDemoStep(2); setView("chat"); setMode("log"); setMobileTab("chat"); }
+      if (demoMode) {
+        setDemoPublished(true);
+        const publishedTitle = draftTitle(a.draft);
+        setMessages(previous => [...previous, { role: "assistant", content: `Published **${publishedTitle}** to Robot v2. The task is on the shared board now. Next, we'll record partial progress and see why it isn't Done yet.`, createdAt: new Date().toISOString() }]);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -2889,6 +2902,15 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
         <ScriptedDemoGuide
           step={demoStep}
           typing={demoTyping}
+          sending={sending}
+          streaming={streaming}
+          logging={logging}
+          publishing={publishing.size > 0}
+          draftReady={demoPendingDrafts.length > 0}
+          published={demoPublished}
+          onOpenDraft={() => { addDrafts(demoPendingDrafts); setDemoPendingDrafts([]); setDemoStep(1); }}
+          mode={mode}
+          onStartLog={() => { setView("chat"); setMobileTab("chat"); setDemoStep(2); }}
           onEvaluate={async () => {
             const response = await fetch("/api/reconcile", { method: "POST" });
             const data = await response.json();

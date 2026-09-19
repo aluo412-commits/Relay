@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 const CHAPTERS = [
   { title: "Click the message bar", text: "Click the highlighted input. Watch the sample request type itself, then click Send.", target: ".workspace .composer" },
@@ -12,14 +12,31 @@ const CHAPTERS = [
 ];
 
 type Rect = { top: number; left: number; right: number; bottom: number };
-export default function ScriptedDemoGuide({ step, typing, onEvaluate, onBoard, onExplore }: {
-  step: number; typing: boolean; onEvaluate: () => Promise<void>; onBoard: () => void; onExplore: () => void;
+export default function ScriptedDemoGuide({ step, mode, typing, sending, streaming, logging, publishing, draftReady, published, onOpenDraft, onStartLog, onEvaluate, onBoard, onExplore }: {
+  step: number; mode: "chat" | "log"; typing: boolean; sending: boolean; streaming: boolean; logging: boolean; publishing: boolean; draftReady: boolean; published: boolean;
+  onOpenDraft: () => void; onStartLog: () => void; onEvaluate: () => Promise<void>; onBoard: () => void; onExplore: () => void;
 }) {
   const [rect, setRect] = useState<Rect | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [minimized, setMinimized] = useState(false);
-  const chapter = CHAPTERS[step];
+  const chapter = useMemo(() => {
+    const base = CHAPTERS[step];
+    if (step === 0 && sending) return {
+      title: streaming ? "Watch the response take shape" : "Your request has arrived",
+      text: streaming ? "Relay is explaining the task, owner and deadline. Read along—the editor won't open over the response." : "First the request, then the response. This brief pause is part of the scripted walkthrough, not a live AI call.",
+      target: ".workspace .stream .msg.ai:last-child",
+    };
+    if (step === 0 && draftReady) return { title: "Read the reply, then open the draft", text: "The task is only a draft—not published. When you're ready, open it to inspect the owner, due date and acceptance criteria.", target: ".workspace .stream .msg.ai:last-child" };
+    if (step === 1 && published) return { title: "Your task is now on the board", text: "Publishing is the moment the draft becomes shared work. Take a moment to read the confirmation, then try recording progress.", target: ".workspace .stream .msg.ai:last-child" };
+    if (step === 1 && publishing) return { ...base, title: "Adding your reviewed task…", text: "The draft keeps your edits. Next you'll see a confirmation before moving on to Log." };
+    if (step === 2 && mode === "chat") return { title: "Now switch from Chat to Log", text: "Chat is where you ask Relay to plan work. Log is where you record what happened. Click the highlighted Log tab yourself—we'll stay here until you do.", target: ".mode-toggle" };
+    if (step === 2 && logging) return { title: "Reading the progress evidence…", text: "The motors respond, but the encoder check is still missing. Watch what changes—and what stays blocked.", target: ".log-stream" };
+    if (step === 3 && busy) return { ...base, title: "Comparing evidence with criteria…", text: "Checking motor responses first, then encoder directions. Partial progress must not be mistaken for completion." };
+    return base;
+  }, [step, mode, sending, streaming, draftReady, publishing, published, logging, busy]);
+  const reading = (step === 0 && (sending || draftReady)) || (step === 1 && published);
+  const status = typing ? "Typing the example—then you click Send." : sending ? (streaming ? "Revealing the scripted reply…" : "Request received · preparing the preview…") : publishing ? "Publishing the reviewed task…" : logging ? "Reading your log and updating the task…" : busy ? "Evaluating the missing evidence…" : draftReady && step === 0 ? "Paused here. Continue when you've finished reading." : published && step === 1 ? "Published. You choose when to try the next feature." : step === 2 && mode === "chat" ? "Your next click: Log, beside Ask Relay." : step < 3 ? "Continue by interacting with the highlighted area." : "Take your time. The next step starts with your click.";
   useEffect(() => {
     if (!chapter || minimized) return;
     const onKey = (event: KeyboardEvent) => {
@@ -74,12 +91,15 @@ export default function ScriptedDemoGuide({ step, typing, onEvaluate, onBoard, o
   return <>
     <div className="tour-shade" aria-hidden="true">{panels.map((style, i) => <div key={i} style={style} />)}</div>
     {rect && <div className="tour-outline" aria-hidden="true" style={{ top: rect.top, left: rect.left, width: rect.right - rect.left, height: rect.bottom - rect.top }} />}
-    <aside className={`tour-guide tour-step-${step}`} aria-label="Relay guided demo">
+    <aside className={`tour-guide tour-step-${step}${reading ? " tour-reading" : ""}${step === 2 && mode === "chat" ? " tour-mode-switch" : ""}`} aria-label="Relay guided demo">
       <header><span>SCRIPTED DEMO · {step + 1} / {CHAPTERS.length}</span><button onClick={() => setMinimized(true)} aria-label="Minimize demo guide">−</button></header>
-      <h2>{chapter.title}</h2><p>{chapter.text}</p>
+      <div className="tour-copy" key={chapter.title}><h2>{chapter.title}</h2><p>{chapter.text}</p></div>
+      {step === 0 && <div className="tour-sequence" aria-label="Request flow"><span className={sending || draftReady ? "passed" : "current"}>1. Request</span><span aria-hidden="true">→</span><span className={sending || draftReady ? "current" : ""}>2. Reply</span><span aria-hidden="true">→</span><span>3. Draft</span></div>}
       <div className="tour-progress" aria-hidden="true">{CHAPTERS.map((_, i) => <i key={i} className={i <= step ? "complete" : ""} />)}</div>
-      <div role="status" className="tour-status">{typing ? "Typing the example…" : step < 3 ? "Continue by interacting with the highlighted area." : "All results in this tour are scripted."}</div>
-      {step === 3 && <button className="tour-action" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { await onEvaluate(); } catch { setError("Couldn't show the evaluation. Try again."); } finally { setBusy(false); } }}>Show evaluation →</button>}
+      <div role="status" className="tour-status">{status}</div>
+      {step === 0 && draftReady && !sending && <button className="tour-action" onClick={onOpenDraft}>Open the task draft →</button>}
+      {step === 1 && published && <button className="tour-action" onClick={onStartLog}>Try a progress update →</button>}
+      {step === 3 && <button className="tour-action" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { await onEvaluate(); } catch { setError("Couldn't show the evaluation. Try again."); } finally { setBusy(false); } }}>{busy ? "Comparing evidence…" : "Show evaluation →"}</button>}
       {step === 4 && <button className="tour-action" onClick={onBoard}>Inspect the board →</button>}
       {step === 5 && <button className="tour-action" onClick={onExplore}>Finish walkthrough</button>}
       {error && <p role="alert">{error}</p>}

@@ -1,11 +1,12 @@
 // Browser-only, deterministic sandbox. No fetch fallback, cookies, database or AI.
 import type { DraftPayload, LogEntryDTO, ProjectState, SyncItem, TaskDTO } from "./types";
+import { DEMO_PACING, demoPause, scriptedReplyStream } from "./demoPlayback";
 
 export const DEMO_REQUEST = "Create a task for Alex to verify controller wiring by tomorrow. Check that all motors respond and encoder directions are correct.";
 export const DEMO_LOG = "All motors respond in the controller wiring test. Encoder direction is not verified yet.";
 export const DEMO_TASK = "Verify controller wiring";
 
-export function createDemoTransport() {
+export function createDemoTransport({ pace = 0, reducedMotion = () => false }: { pace?: number; reducedMotion?: () => boolean } = {}) {
   const now = new Date();
   const stamp = now.toISOString();
   const tomorrow = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
@@ -54,12 +55,13 @@ export function createDemoTransport() {
       const draft: DraftPayload = { kind: "tasks", title: DEMO_TASK, tasks: [{ name: DEMO_TASK, owner: "Alex", due: tomorrow, status: "new", objective: "Verify the controller before autonomous testing.", acceptanceCriteria: ["All motors respond", "Encoder directions are verified"], priority: "high" }] };
       const userId = id(), messageId = id();
       messages.push({ id: userId, role: "user", content: body.message, createdAt: stamp }, { id: messageId, role: "assistant", content: reply, createdAt: stamp });
-      const events = [{ type: "delta", text: reply }, { type: "done", turn: { reply }, messageId, userMessageId: userId, drafts: [draft], state }];
-      return new Response(events.map(e => JSON.stringify(e)).join("\n") + "\n", { headers: { "Content-Type": "application/x-ndjson" } });
+      const done = { type: "done", turn: { reply }, messageId, userMessageId: userId, drafts: [draft], state };
+      return new Response(scriptedReplyStream(reply, done, { pace, signal: init?.signal, reducedMotion: reducedMotion() }), { headers: { "Content-Type": "application/x-ndjson" } });
     }
     if (path === "/api/publish") {
       const draft = body.draft as DraftPayload;
       if (draft.kind !== "tasks") return json({ error: "This scripted chapter publishes task drafts only." }, 400);
+      await demoPause(DEMO_PACING.publishMs * pace, init?.signal);
       for (const d of draft.tasks) {
         const existing = state.boards[0].tasks.find(t => t.name === d.name);
         if (existing) continue;
@@ -73,6 +75,7 @@ export function createDemoTransport() {
       if (method === "GET") return json({ entries: logs });
       const target = state.boards[0].tasks.find(t => t.name === DEMO_TASK) ?? state.boards[0].tasks[1];
       if (!target) return json({ error: "Publish the controller task first." }, 400);
+      await demoPause(DEMO_PACING.logMs * pace, init?.signal);
       target.status = "inprogress";
       target.note = "Scripted evidence: motors respond; encoder directions still unverified.";
       const entry: LogEntryDTO = { id: id(), memberName: member.name, text: body.text, synced: `${target.name} → In progress (not Done: encoder check is missing)`, createdAt: stamp };
@@ -84,6 +87,7 @@ export function createDemoTransport() {
     if (path === "/api/reconcile") {
       // Startup calls stay quiet; evaluation is revealed only after the user logs evidence.
       if (logs.length && !evaluated) {
+        await demoPause(DEMO_PACING.evaluateMs * pace, init?.signal);
         evaluated = true;
         items = [{ key: "demo-evaluation", verdict: "reconcile", intensity: "proactive", actionable: true, taskName: DEMO_TASK, boardId: "demo-board", fromName: "Relay", createdAt: stamp, text: "Scripted evaluation: motor responses are confirmed, but encoder direction has no completion evidence. Keep In progress. Next question: can you verify the encoder directions before autonomous testing?" }];
       }
