@@ -2822,13 +2822,14 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
           onOpenSources={() => setFilesOpen(true)}
           onStartTask={() => { setMode("chat"); insertText("Create a task: verify the autonomous routine by Friday. Assign it to Alex and include observable acceptance criteria."); }}
           onStartLog={() => { setMode("log"); setLogInput("Finished the intake consistency test: three repeatable cycles passed."); }}
+          onStartQuestion={() => { setMode("chat"); insertText("Ask Jordan whether the motor controller wiring is ready for autonomous testing."); }}
         />
       ) : null}
     </div>
   );
 }
 
-function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onStartLog }: {
+function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onStartLog, onStartQuestion }: {
   mode: "chat" | "log";
   view: "chat" | "boards" | "board";
   onMode: (mode: "chat" | "log") => void;
@@ -2836,6 +2837,7 @@ function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onS
   onOpenSources: () => void;
   onStartTask: () => void;
   onStartLog: () => void;
+  onStartQuestion: () => void;
 }) {
   const [step, setStep] = useState(0);
   const [open, setOpen] = useState(true);
@@ -2862,14 +2864,21 @@ function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onS
       cta: "Load a progress log",
     },
     {
-      label: "04 / Boards + Sync",
+      label: "04 / Ask a teammate",
+      title: "Route a question, not a reminder",
+      body: "Ask Relay to check with a teammate. The question is directed, visible, and the answer comes back into the same workspace.",
+      action: onStartQuestion,
+      cta: "Load a teammate question",
+    },
+    {
+      label: "05 / Boards + Sync",
       title: "Inspect the shared state",
       body: "Open Boards to see owners, due dates, dependencies, and blockers. Return to Ask Relay to see In sync and any evidence-based follow-up.",
       action: () => { onView("boards"); onMode("chat"); },
       cta: "Open Boards",
     },
     {
-      label: "05 / Sources",
+      label: "06 / Sources",
       title: "Give Relay authoritative context",
       body: "Open Sources to attach PDFs, images, and team references. Relay uses them when answering, drafting, and evaluating work.",
       action: onOpenSources,
