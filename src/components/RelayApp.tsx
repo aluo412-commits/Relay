@@ -224,7 +224,7 @@ const DRAFT_KIND_LABEL: Record<string, string> = {
   status: "Status change",
 };
 
-export default function RelayApp() {
+export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
   const [state, setState] = useState<ProjectState | null>(null);
   const [memberId, setMemberId] = useState<string>("");
   const [session, setSession] = useState<Session | null>(null);
@@ -2813,7 +2813,82 @@ export default function RelayApp() {
       </nav>
 
       <div className={`toast${toast ? " show" : ""}`}>{toast}</div>
+      {demoMode ? (
+        <DemoGuide
+          mode={mode}
+          view={view}
+          onMode={setMode}
+          onView={setView}
+          onOpenSources={() => setFilesOpen(true)}
+          onStartTask={() => { setMode("chat"); insertText("Create a task: verify the autonomous routine by Friday. Assign it to Alex and include observable acceptance criteria."); }}
+          onStartLog={() => { setMode("log"); setLogInput("Finished the intake consistency test: three repeatable cycles passed."); }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onStartLog }: {
+  mode: "chat" | "log";
+  view: "chat" | "boards" | "board";
+  onMode: (mode: "chat" | "log") => void;
+  onView: (view: "chat" | "boards" | "board") => void;
+  onOpenSources: () => void;
+  onStartTask: () => void;
+  onStartLog: () => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [open, setOpen] = useState(true);
+  const steps = [
+    {
+      label: "01 / Ask Relay",
+      title: "Give Relay a real request",
+      body: "Start with a natural instruction. Relay will draft the task, owner, deadline, and acceptance criteria in the existing draft panel.",
+      action: onStartTask,
+      cta: "Load a task request",
+    },
+    {
+      label: "02 / Publish",
+      title: "Review before it becomes shared work",
+      body: "Send the request, then edit the task draft and publish it. Relay never silently changes the board from a chat proposal.",
+      action: () => onMode("chat"),
+      cta: "Keep Ask Relay open",
+    },
+    {
+      label: "03 / Log",
+      title: "Record progress without a status form",
+      body: "Switch to Log and record what actually happened. Relay evaluates the evidence and can sync an unambiguous status change.",
+      action: onStartLog,
+      cta: "Load a progress log",
+    },
+    {
+      label: "04 / Boards + Sync",
+      title: "Inspect the shared state",
+      body: "Open Boards to see owners, due dates, dependencies, and blockers. Return to Ask Relay to see In sync and any evidence-based follow-up.",
+      action: () => { onView("boards"); onMode("chat"); },
+      cta: "Open Boards",
+    },
+    {
+      label: "05 / Sources",
+      title: "Give Relay authoritative context",
+      body: "Open Sources to attach PDFs, images, and team references. Relay uses them when answering, drafting, and evaluating work.",
+      action: onOpenSources,
+      cta: "Open Sources",
+    },
+  ];
+  const current = steps[step];
+  if (!open) return <button className="demo-guide-tab" onClick={() => setOpen(true)}>Demo guide</button>;
+  return (
+    <aside className="demo-guide" aria-label="Relay guided demo">
+      <div className="demo-guide-top"><span>GUIDED DEMO</span><button onClick={() => setOpen(false)} aria-label="Minimize demo guide">×</button></div>
+      <div className="demo-guide-progress"><i style={{ width: `${((step + 1) / steps.length) * 100}%` }} /></div>
+      <div className="demo-guide-label">{current.label}</div>
+      <h2>{current.title}</h2>
+      <p>{current.body}</p>
+      <button className="demo-guide-action" onClick={() => { current.action(); if (step < steps.length - 1) setStep(step + 1); }}>{current.cta} <span>→</span></button>
+      <div className="demo-guide-footer"><button disabled={step === 0} onClick={() => setStep(step - 1)}>← Back</button><span>{step + 1} of {steps.length}</span><button disabled={step === steps.length - 1} onClick={() => setStep(step + 1)}>Next →</button></div>
+      <div className="demo-guide-state">{mode === "log" ? "Log mode" : view === "boards" || view === "board" ? "Board view" : "Ask Relay"}</div>
+    </aside>
   );
 }
 
