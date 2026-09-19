@@ -2820,9 +2820,9 @@ export default function RelayApp({ demoMode = false }: { demoMode?: boolean }) {
           onMode={setMode}
           onView={setView}
           onOpenSources={() => setFilesOpen(true)}
-          onStartTask={() => { setMode("chat"); insertText("Create a task: verify the autonomous routine by Friday. Assign it to Alex and include observable acceptance criteria."); }}
-          onStartLog={() => { setMode("log"); setLogInput("Finished the intake consistency test: three repeatable cycles passed."); }}
-          onStartQuestion={() => { setMode("chat"); insertText("Ask Jordan whether the motor controller wiring is ready for autonomous testing."); }}
+          onStartTask={() => setMode("chat")}
+          onStartLog={() => setMode("log")}
+          onStartQuestion={() => setMode("chat")}
         />
       ) : null}
     </div>
@@ -2845,30 +2845,34 @@ function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onS
     {
       label: "01 / Ask Relay",
       title: "Give Relay a real request",
-      body: "Start with a natural instruction. Relay will draft the task, owner, deadline, and acceptance criteria in the existing draft panel.",
+      body: "Click Ask Relay, write your own task request, and send it. Include a deadline or owner to see Relay structure it in the existing draft panel.",
+      example: "Try: Create a task to verify autonomous testing by Friday.",
       action: onStartTask,
-      cta: "Load a task request",
+      cta: "Open Ask Relay"
     },
     {
       label: "02 / Publish",
       title: "Review before it becomes shared work",
-      body: "Send the request, then edit the task draft and publish it. Relay never silently changes the board from a chat proposal.",
+      body: "After you send the request, edit the task draft and publish it yourself. Relay never silently changes the board from a chat proposal.",
+      example: "Look for: owner · due date · acceptance criteria",
       action: () => onMode("chat"),
-      cta: "Keep Ask Relay open",
+      cta: "Show the draft step"
     },
     {
       label: "03 / Log",
       title: "Record progress without a status form",
-      body: "Switch to Log and record what actually happened. Relay evaluates the evidence and can sync an unambiguous status change.",
+      body: "Switch to Log and write what actually happened. Relay evaluates the evidence and can sync an unambiguous status change.",
+      example: "Try: Finished the intake consistency test; three repeatable cycles passed.",
       action: onStartLog,
-      cta: "Load a progress log",
+      cta: "Open Log"
     },
     {
       label: "04 / Ask a teammate",
       title: "Route a question, not a reminder",
-      body: "Ask Relay to check with a teammate. The question is directed, visible, and the answer comes back into the same workspace.",
+      body: "Switch back to Ask Relay and ask Relay to check with a teammate. The question is directed, visible, and the answer comes back into the same workspace.",
+      example: "Try: Ask Jordan whether the motor controller is ready.",
       action: onStartQuestion,
-      cta: "Load a teammate question",
+      cta: "Open Ask Relay"
     },
     {
       label: "05 / Boards + Sync",
@@ -2876,11 +2880,13 @@ function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onS
       body: "Open Boards to see owners, due dates, dependencies, and blockers. Return to Ask Relay to see In sync and any evidence-based follow-up.",
       action: () => { onView("boards"); onMode("chat"); },
       cta: "Open Boards",
+      example: "Click a task to inspect its dependency and due date.",
     },
     {
       label: "06 / Sources",
       title: "Give Relay authoritative context",
       body: "Open Sources to attach PDFs, images, and team references. Relay uses them when answering, drafting, and evaluating work.",
+      example: "Upload a team reference and attach it to your next message.",
       action: onOpenSources,
       cta: "Open Sources",
     },
@@ -2894,7 +2900,8 @@ function DemoGuide({ mode, view, onMode, onView, onOpenSources, onStartTask, onS
       <div className="demo-guide-label">{current.label}</div>
       <h2>{current.title}</h2>
       <p>{current.body}</p>
-      <button className="demo-guide-action" onClick={() => { current.action(); if (step < steps.length - 1) setStep(step + 1); }}>{current.cta} <span>→</span></button>
+      {current.example ? <div className="demo-guide-example">{current.example}</div> : null}
+      <button className="demo-guide-action" onClick={() => current.action()}>{current.cta} <span>→</span></button>
       <div className="demo-guide-footer"><button disabled={step === 0} onClick={() => setStep(step - 1)}>← Back</button><span>{step + 1} of {steps.length}</span><button disabled={step === steps.length - 1} onClick={() => setStep(step + 1)}>Next →</button></div>
       <div className="demo-guide-state">{mode === "log" ? "Log mode" : view === "boards" || view === "board" ? "Board view" : "Ask Relay"}</div>
     </aside>
