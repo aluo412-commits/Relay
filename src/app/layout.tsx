@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Relay — chat is for people, work runs on Relay",
-  description: "An AI project manager for teams that hate project management.",
+  title: "Relay — Your school day, in view",
+  description: "Assignments, school updates and upcoming dates in one calm workspace.",
   manifest: "/manifest.webmanifest",
   applicationName: "Relay",
   appleWebApp: {
@@ -28,8 +28,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   // Tint the browser/PWA chrome to match the app in each theme.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#5b5fe9" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f1117" },
+    { media: "(prefers-color-scheme: light)", color: "#f3f6fa" },
+    { media: "(prefers-color-scheme: dark)", color: "#f3f6fa" },
   ],
 };
 

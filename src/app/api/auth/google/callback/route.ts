@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { finishGmail } from "@/lib/student/gmail";
 import { prisma } from "@/lib/db";
 import { exchangeCode, fetchGoogleProfile } from "@/lib/google";
 import { signSession, SESSION_COOKIE, WORKSPACE_COOKIE, cookieOptions, SESSION_MAX_AGE } from "@/lib/auth";
@@ -10,6 +11,8 @@ const STATE_COOKIE = "g_oauth_state";
 // GET /api/auth/google/callback -> exchange the code, upsert the user, start a session.
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = req.nextUrl;
+  // Separate, explicitly consented read-only school-mail flow; legacy login is unchanged.
+  if (searchParams.get("state")?.startsWith("study_")) return finishGmail(req);
   const fail = (reason: string) => NextResponse.redirect(new URL(`/app?authError=${reason}`, origin));
 
   const code = searchParams.get("code");

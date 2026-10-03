@@ -1,5 +1,2 @@
-import RelayApp from "@/components/RelayApp";
-
-export default function AppPage() {
-  return <RelayApp />;
-}
+import { redirect } from "next/navigation";
+export default function AppPage() { redirect("/"); }
