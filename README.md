@@ -17,8 +17,8 @@ npx tsc --noEmit
 npm run build
 ```
 
-The dev server runs on port 3002. See [student dashboard architecture, connection setup, privacy and limits](docs/student-dashboard.md). The new dashboard does not require a database migration. The previous team product still uses the existing Postgres schema.
+The dev server runs on port 3002. See [student dashboard architecture, connection setup, privacy and limits](docs/student-dashboard.md). Public sources and local reader imports do not require new database tables. Optional reader AI needs the additive usage table; see [Chrome reader setup and privacy](docs/course-reader.md). The previous team product still uses the existing Postgres schema.
 
-**Live data requires real authorization.** Public FUHSD announcements and events load directly from official pages. Private Schoology entries require a permitted iCalendar feed; Gmail requires explicit OAuth permission and Google API configuration. Empty states are intentional, never fabricated assignments.
+**Live data requires real authorization.** Public FUHSD announcements and events load directly from official pages. Private Schoology entries require a permitted iCalendar feed; Gmail requires explicit OAuth permission and Google API configuration. Empty states are intentional, never fabricated assignments. The [browser reader](extensions/course-reader/README.md) can import selected course text; AI analysis is opt-in and always produces reviewable drafts.
 
 See [deployment setup](DEPLOYMENT.md) for the existing Vercel/Google environment configuration. The website prototype processes connected data on its server; it is not yet the offline hardware product described in the business plan.

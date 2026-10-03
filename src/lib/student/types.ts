@@ -3,7 +3,7 @@ export const SCHOOLOGY_URL = "https://fuhsd.schoology.com";
 export const DISTRICT_URL = "https://www.fuhsd.org";
 export const CALENDAR_URL = `${DISTRICT_URL}/about-us/general-information/calendar`;
 
-export type SourceId = "district" | "schoology" | "gmail";
+export type SourceId = "district" | "schoology" | "gmail" | "reader";
 export type StudyItem = {
   id: string;
   source: SourceId;
@@ -16,6 +16,8 @@ export type StudyItem = {
   course?: string;
   sender?: string;
   location?: string;
+  requirement?: "required" | "optional" | "unclear";
+  evidence?: string;
 };
 export type SourceState = {
   id: SourceId;

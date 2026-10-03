@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Relay Course Reader — Pilot",
+  "version": "0.1.0",
+  "description": "Preview selected Schoology and Google Docs/Slides text, then send it to your Relay dashboard. No passwords, cookies, or automatic submissions.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://relay.aaronluo.com/*"],
+  "optional_host_permissions": ["http://localhost:3002/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Read this course page", "default_popup": "popup.html" },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'" },
+  "minimum_chrome_version": "120"
+}

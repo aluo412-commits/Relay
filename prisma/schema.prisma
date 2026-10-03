@@ -23,6 +23,17 @@ model User {
   createdAt    DateTime @default(now())
 
   members Member[]
+  readerAiBudget ReaderAiBudget?
+}
+
+// Usage metadata only. Course excerpts and AI cards are never stored here.
+model ReaderAiBudget {
+  userId     String   @id
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day        String
+  used       Int      @default(0)
+  leaseUntil DateTime?
+  updatedAt  DateTime @default(now()) @updatedAt
 }
 
 // The team / workspace. Holds many Boards (Kanbans), shared team memory, and members.

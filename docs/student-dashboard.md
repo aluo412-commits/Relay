@@ -1,6 +1,6 @@
 # Relay student dashboard — FUHSD pilot
 
-The root of relay.aaronluo.com is now an English student dashboard, not the team chat product. `/app` and `/demo` redirect to `/`. The existing team components, APIs and database models remain in the repository; the prior entry points are under `/legacy`, `/legacy/demo`, and `/legacy/landing`. Git tag `archive/team-relay-e399568` preserves the pre-pivot version. No database migration or deletion is required.
+The root of relay.aaronluo.com is now an English student dashboard, not the team chat product. `/app` and `/demo` redirect to `/`. The existing team components, APIs and database models remain in the repository; the prior entry points are under `/legacy`, `/legacy/demo`, and `/legacy/landing`. Git tag `archive/team-relay-e399568` preserves the pre-pivot version. The original public/calendar/mail dashboard required no migration. Optional browser-reader AI now requires the additive usage table described in [course-reader.md](course-reader.md); no existing data is deleted.
 
 ## Live sources, not a seeded demo
 
@@ -8,7 +8,9 @@ The root of relay.aaronluo.com is now an English student dashboard, not the team
 - **Schoology:** a student supplies an authorized iCalendar subscription URL through Connections. Only HTTPS on `fuhsd.schoology.com`, `app.schoology.com`, and `api.schoology.com` is accepted. Redirects are refused, response size and time are bounded, and the response must be an iCalendar document before the connection is saved. Relay does not collect school passwords, session cookies, or scrape an SSO login. Calendar export may be disabled by the district; no export means this connector cannot access the student's work yet.
 - **Gmail:** explicit, separate read-only OAuth consent. Uses the existing Google client and registered `/api/auth/google/callback`; the `study_` state prefix selects an independent PKCE/state-checked flow. Google must have the Gmail API enabled, the `gmail.readonly` scope configured, and appropriate test-user/verification/admin approval. Existing Google sign-in is not Gmail permission. No mail is fetched without consent.
 
-The dashboard never substitutes sample assignments when a connection is missing or fails. Its short brief is a deterministic digest of source records, not a model-generated academic assessment. Email cards show original previews, not AI summaries. No private source data is sent to an LLM.
+- **Browser course reader:** the optional Chrome extension imports selected Schoology/Google Docs/Slides excerpts into this browser. Separate consent and a Relay login enable evidence-linked AI drafts; each card requires review before appearing on the board. See [setup, privacy and limits](course-reader.md).
+
+The dashboard never substitutes sample assignments when a connection is missing or fails. Its short brief is a deterministic digest of source records, not a model-generated academic assessment. Email cards show original previews, not AI summaries. Calendar/email connector data is not sent to an LLM. Browser-reader excerpts are sent only after the user explicitly selects and consents to an AI analysis.
 
 ## Limits that must stay visible
 
@@ -23,7 +25,7 @@ The dashboard never substitutes sample assignments when a connection is missing 
 
 - Require existing `AUTH_SECRET` to be at least 32 characters. It derives a purpose-separated AES-256-GCM credential key. URL and OAuth credentials are encrypted in Secure (production), HttpOnly, SameSite=Lax cookies with a maximum 30-day lifetime. OAuth state and PKCE verifier expire after 10 minutes.
 - Connections belong to a **browser profile**, not a cloud account. Anyone using that profile can see its connected data. Do not advertise this as a multi-user shared-device login system. Disconnect on shared devices. Use Google account settings to revoke the provider grant; disconnect removes this browser's credentials, not the Google-wide grant.
-- Source responses use `Cache-Control: private, no-store` and `Vary: Cookie`. Schoology and Gmail upstream fetches also use no-store. No assignment/email records are written to Prisma. The server necessarily processes the data in memory; this is a web prototype, **not** the business plan's future offline/local-only device.
+- Source responses use `Cache-Control: private, no-store` and `Vary: Cookie`. Schoology and Gmail upstream fetches also use no-store. No assignment/email records are written to Prisma. The optional browser reader stores excerpts/cards in IndexedDB; AI usage metadata alone is stored server-side. The server necessarily processes the data in memory; this is a web prototype, **not** the business plan's future offline/local-only device.
 - Connection mutations require a same-origin request. Credential cookies are authenticated and purpose-bound; no credential is returned by the dashboard endpoint or printed in application logs.
 - Public district fetches use a 15-minute cache. The client refreshes private sources about once per minute while visible/online and on returning after a minute. Refreshes are non-overlapping, aborted on unmount, and invalidated before connection changes. No background scheduler is claimed.
 - Transient errors retain already displayed source items with a visible warning and their last checked time. Disconnect removes those items rather than keeping them as stale data.
