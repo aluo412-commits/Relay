@@ -1,0 +1,221 @@
+import { SCHOOL, schoolUrl, googleUrl, isDue, addJobs, putSnapshot } from "./sync-core.js";
+import { readSyncPage } from "./sync-read.js";
+const ALARM = "relay-daily-reader";
+const DEFAULT = { enabled: false, google: false };
+let working = false;
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function state() { const s = await chrome.storage.local.get(["syncSettings", "syncRun", "syncPages"]); return { settings: s.syncSettings || DEFAULT, run: s.syncRun || null, pages: s.syncPages || [] }; }
+function publicReport(run) {
+  if (!run) return null;
+  const { id, status, startedAt, finishedAt, courses, read, changed, unread, unreadCount, limited, message } = run;
+  return { id, status, startedAt, finishedAt, courses, read, changed, unread, unreadCount, limited, message, checked: run.visited.length, queued: run.queue.length };
+}
+export async function syncStatus() { const s = await state(); return { settings: s.settings, report: publicReport(s.run) }; }
+async function closeOwned(run) {
+  const session = await chrome.storage.session.get(["syncBrowserSession", "syncAdoptedTabs"]);
+  if (!run || run.browserSession !== session.syncBrowserSession) return;
+  for (const id of [run?.schoolTab, run?.docsTab]) {
+    if (!id || session.syncAdoptedTabs?.includes(id)) continue;
+    try { const tab = await chrome.tabs.get(id); if (!tab.active) await chrome.tabs.remove(id); } catch { /* Already closed or navigated away by the user. */ }
+  }
+}
+export async function configureSync(enabled, google = false) {
+  if (enabled && !await chrome.permissions.contains({ origins: [SCHOOL + "/*"] })) throw new Error("Grant Schoology access first.");
+  if (enabled && google && !await chrome.permissions.contains({ origins: ["https://docs.google.com/*"] })) throw new Error("Grant Google Docs access or leave linked documents off.");
+  const old = await state();
+  await chrome.storage.local.set({ syncSettings: { enabled, google: enabled && google } });
+  if (!enabled) {
+    await chrome.alarms.clear(ALARM);
+    if (old.run?.status === "running") await chrome.storage.local.set({ syncRun: { ...old.run, status: "paused", message: "Daily reading paused by you.", finishedAt: new Date().toISOString() } });
+    await closeOwned(old.run);
+  } else {
+    if (old.run?.status === "paused" && old.run.queue.length) await chrome.storage.local.set({ syncRun: { ...old.run, status: "running", finishedAt: null, message: "Resuming the paused text sweep…" } });
+    await ensureAlarm(); void tick().catch(() => {});
+  }
+  return syncStatus();
+}
+export async function forgetSync() {
+  await configureSync(false);
+  await chrome.storage.local.remove(["syncPages", "syncRun"]);
+  await chrome.action.setBadgeText({ text: "" });
+  return syncStatus();
+}
+export async function syncNow() {
+  const s = await state();
+  if (!s.settings.enabled) throw new Error("Enable daily course reading first.");
+  if (s.run?.status === "running") return syncStatus();
+  if (working) throw new Error("The previous sweep is finishing. Try Sync now again in a few seconds.");
+  await chrome.storage.local.remove("syncRun");
+  void tick().catch(() => {}); return syncStatus();
+}
+async function ensureAlarm() { if (!await chrome.alarms.get(ALARM)) await chrome.alarms.create(ALARM, { periodInMinutes: 1 }); }
+function issue(run, job, reason, scope = "source") {
+  run.unreadCount++;
+  if (run.unread.length < 240) run.unread.push({ url: job.url, title: job.title || "Course source", reason: reason.slice(0, 350), scope });
+  else run.limited = true;
+}
+async function ownedTab(run, google) {
+  const key = google ? "docsTab" : "schoolTab", origin = google ? "https://docs.google.com" : SCHOOL;
+  if (google && run.docsBlocked) throw new Error("Google login needs attention; linked documents deferred for this sweep.");
+  if (google && !await chrome.permissions.contains({ origins: [origin + "/*"] })) throw new Error("Linked Google Docs access was revoked; document not read.");
+  if (run[key]) {
+    try {
+      const tab = await chrome.tabs.get(run[key]);
+      if (new URL(tab.url || "about:blank").origin === origin) return tab;
+      throw new Error("login");
+    } catch (error) {
+      run[key] = null;
+      if (error.message === "login") { if (google) run.docsBlocked = true; throw new Error(google ? "Google document session unavailable." : "LOGIN_REQUIRED"); }
+      // A closed tab or browser restart is recoverable without losing the queue.
+    }
+  }
+  const tab = await chrome.tabs.create({ url: google ? run.queue[0].url : SCHOOL + "/courses", active: false });
+  run[key] = tab.id;
+  // Persist the owned-tab identity before waiting so a worker restart can resume.
+  const live = await state();
+  if (!live.settings.enabled || live.run?.id !== run.id || live.run.status !== "running") { await closeOwned(run); throw new Error("SYNC_STOPPED"); }
+  await chrome.storage.local.set({ syncRun: run });
+  for (let i = 0; i < 20; i++) {
+    await pause(400);
+    const loaded = await chrome.tabs.get(tab.id);
+    if (loaded.status === "complete") {
+      if (new URL(loaded.url || "about:blank").origin !== origin) { if (google) run.docsBlocked = true; throw new Error(google ? "Google document login required." : "LOGIN_REQUIRED"); }
+      return loaded;
+    }
+  }
+  throw new Error("The background source tab did not finish loading.");
+}
+async function deliver(s) {
+  if (!s.run) return;
+  // Never open or focus Relay without a user action. Delivery waits until Relay
+  // is open and its separate local auto-import switch has been enabled.
+  const tabs = await chrome.tabs.query({ url: "https://relay.aaronluo.com/*" });
+  const eligible = tabs.filter(t => { try { return new URL(t.url).pathname === "/"; } catch { return false; } }).sort((a, b) => Number(b.active) - Number(a.active));
+  const revision = `${s.run.id}:${s.run.visited.length}:${s.run.status}`;
+  for (const tab of eligible) try {
+    const ready = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => location.origin === "https://relay.aaronluo.com" && document.documentElement.dataset.relayDailyReaderReady === "1" });
+    if (!ready[0]?.result) continue;
+    const sent = await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [{ version: 1, pages: s.pages }, publicReport(s.run), revision], func: async (capture, report, revision) => {
+      if (location.origin !== "https://relay.aaronluo.com" || document.documentElement.dataset.relayDailyReaderReady !== "1") return false;
+      if (document.documentElement.dataset.relayDailyRevision === revision) return true;
+      const id = crypto.randomUUID();
+      return new Promise(resolve => {
+        const timeout = setTimeout(() => { window.removeEventListener("message", ack); resolve(false); }, 8000);
+        function ack(e) { if (e.source === window && e.origin === location.origin && e.data?.type === "relay.reader.synced" && e.data.id === id) { clearTimeout(timeout); window.removeEventListener("message", ack); document.documentElement.dataset.relayDailyRevision = revision; resolve(true); } }
+        window.addEventListener("message", ack);
+        window.postMessage({ type: "relay.reader.daily", id, capture, report }, location.origin);
+      });
+    } });
+    if (sent[0]?.result) return;
+  } catch { /* A closed/not-yet-ready dashboard is not a source-read failure. */ }
+}
+export async function tick() {
+  if (working) return;
+  working = true;
+  try {
+    let s = await state();
+    if (!s.settings.enabled) return;
+    if (!await chrome.permissions.contains({ origins: [SCHOOL + "/*"] })) { await configureSync(false); return; }
+    if (!isDue(s.settings, s.run)) { await deliver(s); return; }
+    const session = await chrome.storage.session.get("syncBrowserSession");
+    const browserSession = session.syncBrowserSession || crypto.randomUUID();
+    if (!session.syncBrowserSession) await chrome.storage.session.set({ syncBrowserSession: browserSession });
+    if (s.run?.status === "running" && s.run.browserSession !== browserSession) {
+      s.run.schoolTab = null; s.run.docsTab = null; s.run.browserSession = browserSession;
+      await chrome.storage.local.set({ syncRun: s.run });
+    }
+    if (s.run?.status !== "running") {
+      if (s.run?.browserSession === browserSession) await closeOwned(s.run);
+      s.run = { id: crypto.randomUUID(), status: "running", startedAt: new Date().toISOString(), finishedAt: null, courses: [], queue: [{ url: SCHOOL + "/courses", title: "Enrolled courses", course: null }], visited: [], read: 0, changed: 0, unread: [], unreadCount: 0, limited: false, message: "Checking your enrolled courses…", schoolTab: null, docsTab: null, browserSession };
+      await chrome.storage.local.set({ syncRun: s.run });
+    }
+    const run = s.run, deadline = Date.now() + 20000;
+    // One worker invocation is short. Persist every page; alarms resume the queue
+    // after worker suspension, browser restarts, or a closed source tab.
+    while (run.queue.length && Date.now() < deadline) {
+      const live = await state();
+      if (!live.settings.enabled || live.run?.id !== run.id || live.run.status !== "running") return;
+      const job = run.queue[0]; let result;
+      try {
+        const tab = await ownedTab(run, job.url.startsWith("https://docs.google.com/"));
+        const output = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readSyncPage, args: [job.url] });
+        result = output[0]?.result || { error: "Source did not return readable content." };
+      } catch (e) { result = { error: e.message, login: e.message === "LOGIN_REQUIRED" }; }
+      const after = await state();
+      if (!after.settings.enabled || after.run?.id !== run.id || after.run.status !== "running") return;
+      run.queue.shift(); run.visited.push(job.url);
+      if (result.error) {
+        issue(run, job, result.error);
+        run.consecutiveErrors = (run.consecutiveErrors || 0) + 1;
+        if (run.consecutiveErrors >= 3) { run.status = "partial"; run.queue = []; run.message = "Reading needs attention after repeated source failures. Check your login and retry from the extension."; }
+        if (result.login) { run.status = "login-required"; run.message = "Sign into Schoology, then choose Sync now in the extension."; run.queue = []; }
+      } else {
+        run.consecutiveErrors = 0;
+        if (job.url === SCHOOL + "/courses") {
+          run.courses = [...new Map(result.courses.filter(c => /^\d{1,20}$/.test(c.id)).map(c => [c.id, c])).values()];
+          if (!run.courses.length) { issue(run, job, "No enrolled courses were discovered. The page may require a different layout or a new login; no full-coverage claim is made."); run.message = "Course discovery needs attention. Open Schoology and check your courses."; }
+          else {
+            s.pages = s.pages.filter(p => !p.courseId || run.courses.some(c => c.id === p.courseId));
+            addJobs(run, [...run.courses.flatMap(c => [{ url: `${SCHOOL}/course/${c.id}/materials`, title: c.title, course: c.id }, { url: `${SCHOOL}/course/${c.id}/updates`, title: c.title + " · updates", course: c.id }]), { url: SCHOOL + "/grades/grades", title: "My grades", course: null }]);
+          }
+        }
+        if (result.page) {
+          if (job.course) result.page.title = `${run.courses.find(c => c.id === job.course)?.title || "Course"} · ${job.url.startsWith("https://docs.google.com/") ? job.title : result.page.title}`.slice(0, 180);
+          result.page.courseId = job.course;
+          const merged = putSnapshot(s.pages, result.page); s.pages = merged.pages;
+          run.read++; if (merged.changed) run.changed++; if (merged.evicted) run.limited = true;
+        }
+        if (result.empty) issue(run, job, "Too little readable text. Dynamic/file content may not have loaded.");
+        if (result.linkLimit || result.page?.warnings.some(w => w.includes("6,000"))) run.limited = true;
+        for (const title of result.attachments) issue(run, { ...job, title }, "Not read: attachment, embedded file or external tool. Open its source to inspect it.", "attachment");
+        const jobs = [];
+        // Only traverse links reached from enrolled course pages, not from the
+        // global gradebook or course directory (which can include other links).
+        if (job.course) for (const link of result.links) {
+          const url = schoolUrl(link.url), doc = googleUrl(link.url);
+          if (url) {
+            const course = /\/course\/(\d+)/.exec(url)?.[1] || job.course;
+            if (run.courses.some(c => c.id === course)) jobs.push({ url, title: link.title, course });
+          } else if (doc) {
+            if (s.settings.google) jobs.push({ url: doc, title: link.title, course: job.course });
+            else issue(run, { url: doc, title: link.title }, "Not read: linked Google Docs/Slides access is off.");
+          } else {
+            run.limited = true;
+            issue(run, { ...job, title: link.title }, "Linked source was not followed: unsupported URL or pagination/size limit.", "attachment");
+          }
+        }
+        const lastRead = new Map(s.pages.map(p => [p.url, p.capturedAt]));
+        // New/oldest cached links first within each course's fair share; one
+        // large class must not consume the entire sweep before other classes.
+        jobs.sort((a, b) => (lastRead.get(a.url) || "").localeCompare(lastRead.get(b.url) || ""));
+        addJobs(run, jobs);
+      }
+      if (!run.queue.length) {
+        if (run.status === "running") run.status = run.unreadCount || run.limited ? "partial" : "checked";
+        run.finishedAt = new Date().toISOString();
+        if (!run.message.includes("attention") && run.status !== "login-required") run.message = "Text sweep finished. Coverage is limited to discovered links and readable excerpts, not every file or submission state.";
+      } else run.message = `Reading discovered course pages · ${run.visited.length} checked, ${run.queue.length} queued.`;
+      await chrome.storage.local.set({ syncRun: run, syncPages: s.pages });
+      await chrome.action.setBadgeText({ text: run.status === "running" ? "…" : run.status === "checked" ? "" : "!" });
+      await pause(650);
+    }
+    if (run.status !== "running") await closeOwned(run);
+    const final = await state(); if (final.settings.enabled) await deliver(final);
+  } finally { working = false; }
+}
+export function installScheduler() {
+  chrome.tabs.onActivated.addListener(({ tabId }) => { void (async () => {
+    const { syncRun } = await chrome.storage.local.get("syncRun");
+    if (syncRun?.schoolTab === tabId || syncRun?.docsTab === tabId) {
+      const saved = await chrome.storage.session.get("syncAdoptedTabs");
+      await chrome.storage.session.set({ syncAdoptedTabs: [...new Set([...(saved.syncAdoptedTabs || []), tabId])].slice(-100) });
+    }
+  })().catch(() => {}); });
+  const start = async () => { const s = await state(); if (s.settings.enabled) { await ensureAlarm(); await tick(); } };
+  chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === ALARM) void tick().catch(() => {}); });
+  chrome.runtime.onStartup.addListener(() => void start().catch(() => {}));
+  chrome.runtime.onInstalled.addListener(() => void start().catch(() => {}));
+  chrome.permissions.onRemoved.addListener(() => void start().catch(() => {}));
+  // MV3 workers can restart without a browser onStartup event.
+  void start().catch(() => {});
+}

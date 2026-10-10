@@ -58,9 +58,11 @@ test("recapturing a changed source invalidates old cards without duplicating sou
   assert.equal(next.cards[0].status, "stale");
   assert.throws(() => mergeReaderPages(initial, { version: 1, pages: [{ ...page, url: "https://fuhsd.schoology.com/assignment/456" }] }), /identifier/);
 });
-test("extension has no cookie/history/webRequest/all-site or persistent Schoology permissions", () => {
+test("extension has no cookie/history/webRequest/all-site or unconditionally granted Schoology access", () => {
   const manifest = JSON.parse(readFileSync("extensions/course-reader/manifest.json", "utf8"));
-  assert.deepEqual(manifest.permissions, ["activeTab", "scripting", "storage"]);
+  assert.deepEqual(manifest.permissions, ["activeTab", "scripting", "storage", "alarms"]);
+  assert.ok(manifest.optional_host_permissions.includes("https://fuhsd.schoology.com/*"));
+  assert.ok(manifest.optional_host_permissions.includes("https://docs.google.com/*"));
   assert.deepEqual(manifest.host_permissions, ["https://relay.aaronluo.com/*"]);
   assert.equal(manifest.content_scripts, undefined);
   assert.ok(manifest.content_security_policy.extension_pages.includes("script-src 'self'"));

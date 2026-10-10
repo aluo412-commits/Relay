@@ -1,10 +1,17 @@
 import { readActivePage } from "./capture.js";
+import { installScheduler, configureSync, forgetSync, syncNow, syncStatus } from "./sync.js";
+installScheduler();
 const PRODUCTION = "https://relay.aaronluo.com";
 const DEVELOPMENT = "http://localhost:3002";
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return;
   (async () => {
+    if (message.type === "sync-status") return syncStatus();
+    if (message.type === "sync-enable") return configureSync(true, message.google === true);
+    if (message.type === "sync-pause") return configureSync(false);
+    if (message.type === "sync-forget") return forgetSync();
+    if (message.type === "sync-now") return syncNow();
     if (message.type === "read") {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id || !/^https:\/\/(fuhsd\.schoology\.com|docs\.google\.com)\//.test(tab.url || "")) throw new Error("Open your signed-in Schoology page or a course Google Doc/Slides, then click the extension again.");

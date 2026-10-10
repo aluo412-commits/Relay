@@ -38,4 +38,44 @@ $("send").addEventListener("click", async () => {
 $("development").addEventListener("change", async e => {
   if (e.target.checked && !await chrome.permissions.request({ origins: ["http://localhost:3002/*"] })) { e.target.checked = false; status("Localhost permission was not granted.", true); }
 });
+let enabled = false;
+function renderSync(result) {
+  if (!result?.ok) return;
+  enabled = result.settings.enabled;
+  $("sync-state").textContent = enabled ? "On" : "Off";
+  $("enable-sync").disabled = enabled || !$("daily-consent").checked;
+  $("pause-sync").disabled = !enabled;
+  $("sync-now").disabled = !enabled || result.report?.status === "running";
+  $("google-consent").disabled = enabled;
+  $("daily-consent").disabled = enabled;
+  if (enabled) { $("daily-consent").checked = true; $("google-consent").checked = result.settings.google; }
+  const r = result.report;
+  $("sync-summary").textContent = r ? `${r.status} · ${r.courses.length} courses · ${r.read} text snapshots · ${r.changed} new/changed · ${r.queued} queued. ${r.message}` : "No daily sweep yet.";
+  $("sync-report").replaceChildren();
+  if (r) {
+    $("sync-report").append(node("p", `Started ${new Date(r.startedAt).toLocaleString()}. ${r.unreadCount} unread notices. ${r.limited ? "Safety limit reached; coverage is incomplete." : "Only discovered text pages are checked, not every file."}`));
+    for (const c of r.courses) $("sync-report").append(node("p", c.title));
+    for (const x of r.unread) $("sync-report").append(node("p", `${x.title}: ${x.reason}`));
+  }
+}
+$("daily-consent").addEventListener("change", () => { $("enable-sync").disabled = enabled || !$("daily-consent").checked; });
+$("enable-sync").addEventListener("click", async () => {
+  if (!$("daily-consent").checked) return;
+  const origins = ["https://fuhsd.schoology.com/*"];
+  if ($("google-consent").checked) origins.push("https://docs.google.com/*");
+  try {
+    if (!await chrome.permissions.request({ origins })) { status("Daily reading is off because access was not granted.", true); return; }
+    const result = await action({ type: "sync-enable", google: $("google-consent").checked });
+    renderSync(result); if (result) status("Daily reading enabled. In Relay Connections, turn on automatic local imports. AI uploads remain a separate permission.");
+  } catch (e) { status(e.message, true); }
+});
+$("pause-sync").addEventListener("click", async () => { renderSync(await action({ type: "sync-pause" })); status("Daily reads paused. Saved excerpts remain available. Disable automatic AI separately in Relay if desired."); });
+$("sync-now").addEventListener("click", async () => { renderSync(await action({ type: "sync-now" })); });
+$("forget-sync").addEventListener("click", async () => {
+  if (!confirm("Delete the extension’s daily snapshots and revoke its automatic school/document access? Saved copies in Relay must be cleared separately.")) return;
+  const result = await action({ type: "sync-forget" });
+  if (result) { await chrome.permissions.remove({ origins: ["https://fuhsd.schoology.com/*", "https://docs.google.com/*"] }); renderSync(result); status("Extension sync data removed. Clear reader data in Relay separately."); }
+});
 const saved = await chrome.storage.session.get("pages"); pages = saved.pages || []; render();
+renderSync(await chrome.runtime.sendMessage({ type: "sync-status" }));
+setInterval(async () => { try { renderSync(await chrome.runtime.sendMessage({ type: "sync-status" })); } catch { /* Popup closing. */ } }, 2000);
