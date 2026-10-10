@@ -17,7 +17,7 @@ manifest.host_permissions.push("https://fuhsd.schoology.com/*", "https://docs.go
 writeFileSync(join(ext, "manifest.json"), JSON.stringify(manifest));
 let context;
 let changed = false, loggedOut = false, aiCalls = 0;
-const schoolRequests = [];
+const schoolRequests = [], googleRequests = [];
 const phrase = "Required homework: read chapter three and complete question one.";
 function html(title, body) { return `<title>${title} | Schoology</title><main><h1>${title}</h1>${body}<input type="hidden" value="NEVER_CAPTURE_SECRET"><script>/* NEVER_CAPTURE_SCRIPT */</script></main>`; }
 try {
@@ -29,21 +29,21 @@ try {
     if (u.pathname === "/courses") body = '<a href="/course/11">SYNTHETIC Science</a><a href="/course/22">SYNTHETIC Math</a><a href="/course/11/members">NEVER FOLLOW roster</a>';
     else if (u.pathname === "/course/11/materials" && !u.search) body = '<p>Course instructions and teaching materials.</p><a href="/assignment/101">Chapter three homework</a><a href="/course/11/materials?f=99">Unit folder</a><a href="/course/11/materials/gp/88">Syllabus PDF wrapper</a><a href="/external_tool/123/launch">External tool</a>';
     else if (u.pathname === "/course/11/materials" && u.search) body = '<p>Nested unit folder contains course practice.</p><a href="/assignment/102">Optional practice</a><a href="/course/11/materials">Back to materials</a>';
-    else if (u.pathname === "/course/22/materials") body = '<p>Math course materials and learning instructions.</p><a href="/assignment/202">Math homework</a><a href="https://docs.google.com/presentation/d/SYNTHETIC/edit">Daily slides</a>';
+    else if (u.pathname === "/course/22/materials") body = '<p>Math course materials and learning instructions.</p><a href="/assignment/202">Math homework</a><a href="https://docs.google.com/presentation/d/SYNTHETIC/edit">Daily slides</a><a href="https://docs.google.com/document/d/REFERENCE_ONLY/edit">Textbook reference</a>';
     else if (u.pathname.includes("/materials/gp/")) body = '<p>Syllabus PDF. The file itself is NOT this page.</p><iframe src="about:blank"></iframe>';
-    else if (u.pathname.startsWith("/assignment/")) body = `<p>${phrase}${changed && u.pathname === "/assignment/101" ? " Updated by the synthetic teacher: question two is also required." : ""}</p><a href="/assignment/101/submit">NEVER FOLLOW submit</a>`;
+    else if (u.pathname.startsWith("/assignment/")) body = `<p>${phrase}${changed && u.pathname === "/assignment/101" ? " Updated by the synthetic teacher: question two is also required." : ""}</p><div>Submission status: Submitted</div><a href="https://www.turnitin.com/assignment?token=DO_NOT_COPY">Turnitin</a><a href="/assignment/101/submit">NEVER FOLLOW submit</a>`;
     else if (u.pathname.endsWith("/updates")) body = '<p>Course announcement: read the assignment instructions before class.</p>';
     else if (u.pathname === "/grades/grades") body = '<p>My synthetic grades: homework submitted, score not yet available. Submission cannot be inferred from a blank score.</p>';
     else return route.fulfill({ status: 404, body: "fixture path not supported" });
     return route.fulfill({ contentType: "text/html", body: html("SYNTHETIC COURSE FIXTURE", body) });
   });
-  await context.route("https://docs.google.com/**", route => route.fulfill({ contentType: route.request().url().includes("/export/") ? "text/plain" : "text/html", body: route.request().url().includes("/export/") ? phrase + " Recommended additional practice is optional." : html("SYNTHETIC Slides", "Course slides text is read using the text export.") }));
+  await context.route("https://docs.google.com/**", route => { googleRequests.push(route.request().url()); return route.fulfill({ contentType: route.request().url().includes("/export/") ? "text/plain" : "text/html", body: route.request().url().includes("/export/") ? phrase + " Recommended additional practice is optional." : html("SYNTHETIC Slides", "Course slides text is read using the text export.") }); });
   await context.route("https://relay.aaronluo.com/**", async route => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/student/analyze") {
       if (route.request().method() === "GET") return route.fulfill({ json: { identity: "a".repeat(64), authenticated: true, email: "synthetic@example.invalid", configured: true, provider: "fixture.invalid", model: "synthetic-test", googleEnabled: true, remaining: 12, dailyLimit: 12 } });
       aiCalls++;
-      const body = route.request().postDataJSON(); assert.equal(body.consent, true); assert.equal(body.expectedAiIdentity, "a".repeat(64)); assert.ok(body.capture.pages.length <= 5);
+      const body = route.request().postDataJSON(); assert.equal(body.consent, true); assert.equal(body.expectedAiIdentity, "a".repeat(64)); assert.ok(body.capture.pages.length <= 5); assert.ok(body.capture.pages.every(p => p.readDepth !== "description" && !p.url.includes("REFERENCE_ONLY") && !p.url.includes("/grades/grades")));
       const pages = body.capture.pages.filter(p => p.text.includes(phrase));
       return route.fulfill({ json: { cards: pages.map((p, i) => ({ id: "reader-" + String(i + aiCalls * 10).padStart(24, "0"), sourceId: p.id, sourceUrl: p.url, sourceTitle: p.title, sourceTextHash: "a".repeat(64), title: "SYNTHETIC — Read chapter three", course: "Synthetic course", kind: "assignment", requirement: "required", quote: phrase, due: null, dueQuote: null, status: "draft" })), rejected: 0, analyzedAt: new Date().toISOString() } });
     }
@@ -75,6 +75,8 @@ try {
   const snapshots = await worker.evaluate(async () => (await chrome.storage.local.get("syncPages")).syncPages);
   assert.ok(snapshots.some(p => p.url.includes("?f=99"))); assert.ok(snapshots.some(p => p.url.includes("docs.google.com")));
   assert.ok(snapshots.every(p => !p.text.includes("NEVER_CAPTURE")));
+  assert.ok(snapshots.some(p => p.url.includes("REFERENCE_ONLY") && p.readDepth === "description"));
+  assert.equal(googleRequests.some(url => url.includes("REFERENCE_ONLY")), false, "Reference documents must not be downloaded just to classify them");
   assert.equal(schoolRequests.some(r => r.method !== "GET" || /\/submit|\/members|\/external_tool/.test(r.path)), false);
   await dashboard.bringToFront();
   await until(async () => await dashboard.locator(".rr-page").count() >= 9);
@@ -82,6 +84,18 @@ try {
   await dashboard.getByRole("checkbox", { name: "Automatically analyze new or changed excerpts", exact: false }).check();
   await until(() => aiCalls > 0);
   await dashboard.locator(".rr-draft").first().waitFor();
+  await dashboard.getByRole("navigation").getByRole("button", { name: "Overview", exact: true }).click();
+  await dashboard.getByRole("heading", { name: "What your courses need.", exact: true }).waitFor();
+  await dashboard.getByText("Turnitin · Status unknown", { exact: true }).first().waitFor();
+  if (process.env.READER_SCREENSHOTS) {
+    await dashboard.setViewportSize({ width: 1440, height: 1000 });
+    await dashboard.locator('.rr-auto-brief').screenshot({ path: join(process.env.READER_SCREENSHOTS, 'selective-reader-desktop.png') });
+    await dashboard.setViewportSize({ width: 390, height: 844 });
+    await dashboard.locator('.rr-auto-brief').screenshot({ path: join(process.env.READER_SCREENSHOTS, 'selective-reader-mobile.png') });
+    assert.equal(await dashboard.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await dashboard.setViewportSize({ width: 1280, height: 900 });
+  }
+  await dashboard.getByRole("navigation").getByRole("button", { name: "Connections", exact: true }).click();
   // Disable recurring AI after checking consent. The rest of this test exercises
   // changes and login failures without additional model-fixture requests.
   await dashboard.getByRole("checkbox", { name: "Automatically analyze new or changed excerpts", exact: false }).uncheck();
@@ -106,5 +120,5 @@ try {
   assert.equal(run.status, "login-required");
   await dashboard.reload(); await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).waitFor();
   assert.equal(await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).isChecked(), true);
-  console.log(JSON.stringify({ actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
+  console.log(JSON.stringify({ actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, referenceDescriptionsOnly: true, automaticBriefWithoutDocSelection: true, turnitinStatusNotInferredFromSchoology: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
 } finally { await context?.close(); rmSync(dir, { recursive: true, force: true }); }

@@ -1,5 +1,10 @@
 import { SCHOOL, schoolUrl, googleUrl, isDue, addJobs, putSnapshot } from "./sync-core.js";
 import { readSyncPage } from "./sync-read.js";
+import { readingPriority } from "./priority.js";
+async function describeSource(url, link, parent, courseId) {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url));
+  return { id: "page-" + Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join("").slice(0, 24), url, title: link.title || "Course resource", text: `Source title: ${link.title || "Course resource"}\nDescription from linking page: ${link.description || "No description available."}\nDocument contents have not been read.`, description: (link.description || "").slice(0, 500), descriptionSource: parent, readDepth: "description", capturedAt: new Date().toISOString(), warnings: ["Description only, copied from the linking page. Not document contents; not sent for task extraction."], links: [], courseId };
+}
 const ALARM = "relay-daily-reader";
 const DEFAULT = { enabled: false, google: false };
 let working = false;
@@ -160,6 +165,7 @@ export async function tick() {
           }
         }
         if (result.page) {
+          result.page.description = job.description || "";
           if (job.course) result.page.title = `${run.courses.find(c => c.id === job.course)?.title || "Course"} · ${job.url.startsWith("https://docs.google.com/") ? job.title : result.page.title}`.slice(0, 180);
           result.page.courseId = job.course;
           const merged = putSnapshot(s.pages, result.page); s.pages = merged.pages;
@@ -175,10 +181,19 @@ export async function tick() {
           const url = schoolUrl(link.url), doc = googleUrl(link.url);
           if (url) {
             const course = /\/course\/(\d+)/.exec(url)?.[1] || job.course;
-            if (run.courses.some(c => c.id === course)) jobs.push({ url, title: link.title, course });
+            if (run.courses.some(c => c.id === course)) {
+              const traverse = /\/materials(?:\?|$)|\/updates/.test(url);
+              const decision = readingPriority(url, link.title, link.description);
+              if (traverse || decision.level === "important") jobs.push({ url, title: link.title, description: link.description || "", course });
+              else { const entry = await describeSource(url, link, job.url, course); const stored = putSnapshot(s.pages, entry); s.pages = stored.pages; if (stored.evicted) run.limited = true; }
+            }
           } else if (doc) {
-            if (s.settings.google) jobs.push({ url: doc, title: link.title, course: job.course });
-            else issue(run, { url: doc, title: link.title }, "Not read: linked Google Docs/Slides access is off.");
+            const decision = readingPriority(doc, link.title, link.description);
+            if (s.settings.google && decision.level === "important") jobs.push({ url: doc, title: link.title, description: link.description || "", course: job.course });
+            else {
+              const entry = await describeSource(doc, link, job.url, job.course); const stored = putSnapshot(s.pages, entry); s.pages = stored.pages; if (stored.evicted) run.limited = true;
+              if (!s.settings.google && decision.level === "important") issue(run, { url: doc, title: link.title }, "Not read: linked Google Docs/Slides access is off.");
+            }
           } else {
             run.limited = true;
             issue(run, { ...job, title: link.title }, "Linked source was not followed: unsupported URL or pagination/size limit.", "attachment");
@@ -195,6 +210,8 @@ export async function tick() {
         run.finishedAt = new Date().toISOString();
         if (!run.message.includes("attention") && run.status !== "login-required") run.message = "Text sweep finished. Coverage is limited to discovered links and readable excerpts, not every file or submission state.";
       } else run.message = `Reading discovered course pages · ${run.visited.length} checked, ${run.queue.length} queued.`;
+      const permission = await chrome.storage.local.get(["syncSettings", "syncRun"]);
+      if (!permission.syncSettings?.enabled || permission.syncRun?.id !== run.id || permission.syncRun.status !== "running") return;
       await chrome.storage.local.set({ syncRun: run, syncPages: s.pages });
       await chrome.action.setBadgeText({ text: run.status === "running" ? "…" : run.status === "checked" ? "" : "!" });
       await pause(650);

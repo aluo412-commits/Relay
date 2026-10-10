@@ -1,6 +1,14 @@
-# Browser course reader — 0.2 daily-reading pilot
+# Browser course reader — 0.3 selective-reading pilot
 
-See [installation and user-facing boundaries](../extensions/course-reader/README.md). Version 0.2 adds opt-in daily collection; the original manual reader remains available.
+See [installation and user-facing boundaries](../extensions/course-reader/README.md). Version 0.2 added opt-in daily collection; 0.3 makes the normal experience automatic and selective, with a dashboard brief rather than a document-selection queue. Manual overrides remain in a collapsed advanced section.
+
+## Selective reading and academic boundaries
+
+`priority.js` is a shared local metadata heuristic, not an LLM classification or proof of importance. Assignments and clearly labeled planning/rule/feedback documents qualify; background/reference resources and ambiguous titles remain description-only. The extension scans course/folder indexes for links but avoids downloading ordinary linked document bodies. Title/description signals can miss important documents; uncertainty and unread coverage remain visible. Older/manual full captures are still local but filtered before automatic AI. Metadata carries its linking-page provenance and cannot be used as a quote from the unread document.
+
+The API rejects description-only and known answer/example materials before a model call. Automatic AI processes only important readable excerpts. Its structured output adds `insight` learning notes for explicit teacher feedback or recommended review topics, not invented student assessments, homework solutions or essay text. Insights have no deadline, remain non-assignment information, and never enter the verified task list. The Overview displays the latest six unreviewed cards as an automatic brief, clearly labeled as drafts; this does not accept them or mutate Schoology.
+
+Submission observations are deterministic and independent of model judgments. Only exact personal status labels on individual Schoology assignment snapshots qualify; conflicting labels remain unknown, and grades/deadlines/buttons never establish status. A linked Turnitin integration is recorded without opening its LTI action or copying its signed URL. Schoology and Turnitin states are independent; a Turnitin link alone is unknown. A directly connected/live Turnitin adapter has **not** been implemented or verified.
 
 ## Architecture
 
@@ -24,7 +32,7 @@ Server boundaries remain: same origin, Relay authentication, explicit consent, 2
 
 ## Database / deployment
 
-Version 0.2 needs **no additional migration**. The 0.1 `ReaderAiBudget` table stores only user ID, Pacific day, request count, short in-flight lease and timestamp. It contains no excerpts, model responses or cards; application logging does not print them.
+Versions 0.2 and 0.3 need **no additional migration**. The 0.1 `ReaderAiBudget` table stores only user ID, Pacific day, request count, short in-flight lease and timestamp. It contains no excerpts, model responses or cards; application logging does not print them.
 
 For an installation that has not applied the additive 0.1 table:
 
@@ -35,7 +43,7 @@ npx prisma generate
 
 Never reset existing tables. PostgreSQL atomically enforces one concurrent request and 12 requests per user/day across serverless instances. Failed/canceled attempts can count. Per-user quotas do not replace signup/abuse controls needed before broad release.
 
-Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains ten source/documentation files and no credentials.
+Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains eleven source/documentation files and no credentials.
 
 ## Verification
 
@@ -51,6 +59,6 @@ PLAYWRIGHT_MODULE=/path/to/playwright node scripts/verify-reader-extension.mjs -
 npx tsx scripts/verify-reader-integration.ts --run --ai
 ```
 
-The extension integration test loads the actual unpacked extension in a temporary Chrome profile. Schoology/Docs content and AI responses are fixtures; test-only host permissions are pre-granted and initial source-tab navigation is delayed so Playwright can attach fixture routing. It verifies multi-course discovery, nested folders, linked exports, unread-file notices, local automatic imports, separate AI consent, incremental changes, stale cards, pause, expired login, persisted preferences and mobile overflow. It does **not** establish native host-consent UI behavior, district policy approval or successful reading of the student's live courses. Temporary test profiles are deleted.
+The extension integration test loads the actual unpacked extension in a temporary Chrome profile. Schoology/Docs content and AI responses are fixtures; test-only host permissions are pre-granted and initial source-tab navigation is delayed so Playwright can attach fixture routing. It verifies multi-course discovery, nested folders, linked exports, unread-file notices, local automatic imports, separate AI consent, incremental changes, stale cards, pause, expired login, persisted preferences and mobile overflow. It does **not** establish native host-consent UI behavior, district policy approval or successful reading of the student's live courses. Temporary test profiles are deleted. The 0.3 test additionally verifies that a reference Google document is never fetched, its description never enters an AI request, the automatic brief appears without selecting documents, and an explicit Schoology Submitted label does not become a Turnitin Submitted claim.
 
 Unit coverage includes Pacific/DST catch-up, path restrictions, queue deduplication/limits, library-vs-AI payload bounds, stable IDs, changed/failed-source invalidation and version-aware AI batching, alongside the original evidence/date/security tests. Real provider tests use synthetic text only. The student's permitted account is still needed to verify actual Schoology layouts and Google export behavior.

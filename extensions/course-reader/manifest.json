@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Relay Course Reader — Pilot",
-  "version": "0.2.0",
-  "description": "Opt-in daily reading of enrolled Schoology courses while Chrome runs. Local snapshots, coverage reports, and no automatic submissions.",
+  "version": "0.3.0",
+  "description": "Automatic selective course reading: important instructions, reference descriptions, source evidence. No assignment answers or submissions.",
   "permissions": ["activeTab", "scripting", "storage", "alarms"],
   "host_permissions": ["https://relay.aaronluo.com/*"],
   "optional_host_permissions": ["http://localhost:3002/*", "https://fuhsd.schoology.com/*", "https://docs.google.com/*"],

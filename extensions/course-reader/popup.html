@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relay Course Reader</title><link rel="stylesheet" href="popup.css"></head><body>
-<header><span class="mark">r.</span><div><strong>Relay Course Reader</strong><span>Your courses, checked daily.</span></div><small>0.2 PILOT</small></header>
-<main><h1>One permission.<br>A daily course check.</h1><p>Read every discovered enrolled course while Chrome is running and you are signed into Schoology.</p>
+<header><span class="mark">r.</span><div><strong>Relay Course Reader</strong><span>Your courses, checked daily.</span></div><small>0.3 PILOT</small></header>
+<main><h1>One permission.<br>A daily course check.</h1><p>Check enrolled courses automatically. Read important instructions; keep background resources as descriptions. No document picking.</p>
 <section class="daily"><h2>Daily reading <span id="sync-state">Off</span></h2><p>Checks after 8 AM Pacific, or catches up next time Chrome runs. Uses inactive tabs for a read-only, bounded text sweep.</p>
 <label class="consent"><input id="daily-consent" type="checkbox"> I allow daily reading of my enrolled courses, folders, assignments, updates and my grade overview. Save excerpts on this browser and send them locally to my open Relay dashboard when its auto-import switch is on. No passwords or cookies are exported.</label>
-<label class="consent"><input id="google-consent" type="checkbox"> Also read linked Google Docs/Slides text (optional extra permission).</label>
+<label class="consent"><input id="google-consent" type="checkbox"> Also read important linked Google Docs/Slides (optional extra permission). Reference documents stay description-only.</label>
 <p class="note">Personal browser profile only. Clear saved data before switching school accounts. PDFs, images and external tools are listed as unread, not silently skipped. This permission does NOT authorize AI uploads.</p>
 <div class="daily-actions"><button id="enable-sync" class="primary" disabled>Enable daily reading</button><button id="pause-sync">Pause</button><button id="sync-now">Sync now</button></div>
 <p id="sync-summary" role="status">No daily sweep yet.</p><details id="sync-details"><summary>Coverage &amp; unread sources</summary><div id="sync-report"></div></details>

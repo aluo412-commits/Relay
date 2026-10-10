@@ -4,7 +4,7 @@ from pathlib import Path
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
 root = Path(__file__).resolve().parent.parent
-files = ['manifest.json', 'background.js', 'capture.js', 'sync.js', 'sync-core.js', 'sync-read.js', 'popup.html', 'popup.js', 'popup.css', 'README.md']
+files = ['manifest.json', 'background.js', 'capture.js', 'sync.js', 'sync-core.js', 'sync-read.js', 'priority.js', 'popup.html', 'popup.js', 'popup.css', 'README.md']
 out = root / 'public/downloads/relay-course-reader.zip'
 out.parent.mkdir(parents=True, exist_ok=True)
 with ZipFile(out, 'w') as archive:

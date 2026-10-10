@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { ReaderState } from "@/lib/student/reader";
+import { shouldAutoAnalyze } from "@/lib/student/readerPolicy";
 import { autoBatch, excerptFingerprint, mergeDailySnapshot } from "@/lib/student/readerSync";
 import type { ReaderAiStatus } from "./useCourseReader";
 const PREF = "relay-reader-automation-v1", LOG = "relay-reader-analysis-attempts-v1", VERSIONS = "relay-reader-analyzed-versions-v1";
@@ -70,7 +71,7 @@ export function useReaderAutomation({ current, ready, ai, analyzing, analyze, pe
         await navigator.locks.request("relay-reader-auto-ai", { ifAvailable: true }, async lock => {
           if (!lock || !alive) return;
           const unread = new Set(s.current.current.dailyReport?.unread.filter(x => x.scope === "source").map(x => x.url) || []);
-          const pages = s.current.current.pages.filter(page => !unread.has(page.url));
+          const pages = s.current.current.pages.filter(page => !unread.has(page.url) && shouldAutoAnalyze(page));
           const staleIds = new Set(s.current.current.cards.filter(c => c.status === "stale").map(c => c.sourceId));
           const pairs = await Promise.all(pages.map(async page => [page.id, await excerptFingerprint(page.url, page.text)] as const));
           if (!alive || !key.current || !latest.current.ai?.authenticated || latest.current.analyzing || pref.current.aiKey !== key.current || !pref.current.imports) return;
@@ -79,7 +80,7 @@ export function useReaderAutomation({ current, ready, ai, analyzing, analyze, pe
           const completed = new Set(log.completed.filter(hash => !staleHashes.has(hash)));
           const remaining = pages.filter(page => !completed.has(fingerprints.get(page.id)!));
           setPending(remaining.length);
-          if (!remaining.length) { setAutoMessage("Readable excerpts have successful analyses. Check unread notices separately; drafts still need your review."); return; }
+          if (!remaining.length) { setAutoMessage("Important readable instructions are up to date. Background resources stay description-only; ambiguous or unread sources are not assumed complete."); return; }
           if (log.attempts >= AUTO_LIMIT) { setAutoMessage(`${remaining.length} excerpts waiting. Automatic limit: 8 requests per Pacific day, within your shared 12-request quota. Continues on a later day when Relay is open.`); return; }
           if (Date.now() < retryStatusAt) return;
           const fresh = await latest.current.refreshAi();
@@ -91,7 +92,7 @@ export function useReaderAutomation({ current, ready, ai, analyzing, analyze, pe
           // Reserve in local storage while holding a cross-tab lock; failed
           // attempts are not retried in a tight loop or billed repeatedly today.
           localStorage.setItem(LOG, JSON.stringify({ day: log.day, attempts: log.attempts, attempted: log.attempted }));
-          setAutoMessage(`Automatically analyzing ${batch.length} new or changed excerpts · ${log.attempts}/${AUTO_LIMIT} automatic requests today.`);
+          setAutoMessage(`Automatically analyzing ${batch.length} important new or changed sources · ${log.attempts}/${AUTO_LIMIT} automatic requests today.`);
           await latest.current.analyze(batch.map(page => page.id), true);
         });
       } catch { if (alive) setAutoMessage("Automatic analysis paused after a local error. Your imported sources remain available."); }

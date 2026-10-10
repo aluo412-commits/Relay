@@ -51,6 +51,6 @@ export function putSnapshot(pages, page) {
   const next = pages.filter(p => p.url !== page.url);
   next.push(page);
   // Retain current snapshots, not an unbounded history of the student's files.
-  next.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+  next.sort((a, b) => Number(a.readDepth === "description") - Number(b.readDepth === "description") || b.capturedAt.localeCompare(a.capturedAt));
   return { pages: next.slice(0, SOURCE_LIMIT), changed: !previous || previous.text !== page.text, evicted: next.length > SOURCE_LIMIT };
 }

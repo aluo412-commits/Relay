@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import StudentDashboard from "@/components/student/StudentDashboard";
 import "@/components/student/student.css";
 import "@/components/student/reader.css";
+import "@/components/student/reader-brief.css";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {

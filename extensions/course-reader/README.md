@@ -1,4 +1,4 @@
-# Relay Course Reader — 0.2 pilot
+# Relay Course Reader — 0.3 selective-reading pilot
 
 ## Install / update
 
@@ -17,6 +17,16 @@ This is an inspectable prototype, not a Chrome Web Store release. Respect school
 4. Optionally sign into Relay and enable **Automatically analyze new or changed excerpts**. This separate permission sends saved course text, titles and source URLs to Relay's server and the displayed AI provider. Provider retention terms apply. Draft cards still need review before joining the board.
 
 Checks run after 8 AM Pacific or catch up when Chrome next runs. The browser must be running and the school session valid. Relay itself need not stay open for collection. Open Relay to receive results; automatic AI runs only while the dashboard is visible and online. **Sync now** starts an immediate sweep. **Pause** stops further reads; re-enable to resume an unfinished sweep. After an expired login, sign in and choose Sync now.
+
+## Automatic, not a document-selection queue
+
+After the one-time collection/import/AI permissions, no document selection is required. Relay uses local title/description signals to prioritize assignment instructions, syllabi, calendars, rubrics, lab instructions and feedback. The LLM then extracts source-backed requirements and learning notes from the readable important excerpts. This first priority router is a heuristic, not an AI verdict about unseen contents; ambiguous titles stay explicitly unverified.
+
+Other linked resources are retained as descriptions from their linking page, without downloading their document bodies just to classify them. Course/folder indexes still have to be read to discover links. Previously captured or manually opened documents can still exist locally; automatic AI now filters them by importance. Manual tools remain optional and collapsed in Relay.
+
+The Overview automatically shows a concise course brief without making the student select sources or accept every card first. These are labeled AI drafts, not verified assignments or Schoology mutations. Requirements, dates, rules and source-grounded learning notes only—no answers, worked solutions, generated essay wording or answer-revealing hints. Known answer/example materials and description-only records are excluded from model extraction.
+
+Submission checks only recognize explicit personal status labels in individual Schoology assignment snapshots. A linked Turnitin tool alone yields **unknown**; Schoology submission does not prove Turnitin submission, and grades/dates do not prove missing work. No direct authenticated Turnitin connector or automatic LTI launch is implemented. Observations include their source, evidence and read time and never mark work done automatically.
 
 ## What is read
 

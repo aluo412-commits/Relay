@@ -5,11 +5,11 @@ export const READER_LIBRARY_LIMIT = 300;
 export const READER_CARD_LIMIT = 1200;
 export const READER_MAX_TEXT = 6000;
 export const READER_AI_TEXT_LIMIT = 32000;
-export type ReaderPage = { id: string; url: string; title: string; text: string; capturedAt: string; warnings: string[]; links: { title: string; url: string }[] };
+export type ReaderPage = { readDepth?: "description" | "excerpt"; description?: string; descriptionSource?: string; services?: "turnitin"[]; id: string; url: string; title: string; text: string; capturedAt: string; warnings: string[]; links: { title: string; url: string }[] };
 export type ReaderCapture = { version: 1; pages: ReaderPage[] };
 export type ReaderCard = {
   id: string; sourceId: string; sourceUrl: string; sourceTitle: string; sourceTextHash: string;
-  title: string; course: string; kind: "assignment" | "event" | "policy";
+  title: string; course: string; kind: "assignment" | "event" | "policy" | "insight";
   requirement: "required" | "optional" | "unclear";
   quote: string; due: string | null; dueQuote: string | null;
   status: "draft" | "accepted" | "stale";
@@ -55,7 +55,7 @@ export function validateCapture(value: unknown, maxPages = READER_MAX_PAGES): Re
       const link = rawLink as Record<string, unknown>; const safe = safeReaderUrl(link.url);
       return safe ? [{ url: safe, title: short(link.title, 160) || "Open linked page" }] : [];
     }) : [];
-    return { id, url, title: short(p.title, 180) || "Course page", text: p.text.trim(), capturedAt: new Date(p.capturedAt).toISOString(), warnings, links };
+    return { id, url, readDepth: p.readDepth === "description" || /\/materials\/gp\//.test(url) ? "description" : "excerpt", description: short(p.description, 500), descriptionSource: safeReaderUrl(p.descriptionSource) || undefined, services: Array.isArray(p.services) && p.services.includes("turnitin") ? ["turnitin"] : [], title: short(p.title, 180) || "Course page", text: p.text.trim(), capturedAt: new Date(p.capturedAt).toISOString(), warnings, links };
   });
   return { version: 1, pages };
 }
@@ -64,7 +64,7 @@ export function mergeReaderPages(current: ReaderState, incoming: ReaderCapture):
   const changed = new Set<string>();
   for (const page of incoming.pages) {
     const previous = byUrl.get(page.url);
-    if (previous && previous.text !== page.text) changed.add(page.url);
+    if (previous && (previous.text !== page.text || (previous.readDepth || "excerpt") !== (page.readDepth || "excerpt"))) changed.add(page.url);
     byUrl.set(page.url, previous ? { ...page, id: previous.id } : page);
   }
   if (byUrl.size > READER_LIBRARY_LIMIT) throw new Error("Your reader holds 300 excerpts. Remove older manual imports before syncing more.");

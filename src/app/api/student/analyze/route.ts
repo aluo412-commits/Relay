@@ -7,6 +7,7 @@ import { limitedText, PRIVATE_HEADERS, sameOrigin } from "@/lib/student/security
 import { READER_AI_TEXT_LIMIT, validateCapture } from "@/lib/student/reader";
 import { analyzeReaderCapture, readerProvider } from "@/lib/student/readerAnalysis";
 import { READER_DAILY_LIMIT, reserveReaderBudget, releaseReaderBudget } from "@/lib/student/readerBudget";
+import { canAnalyzeExcerpt } from "@/lib/student/readerPolicy";
 import { dayKey } from "@/lib/student/types";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
       expectedIdentity = body.expectedAiIdentity;
     }
     capture = validateCapture(body.capture);
+    if (capture.pages.some(p => !canAnalyzeExcerpt(p))) return json({ error: "Descriptions are not document contents. Answer/example materials are excluded; Relay provides requirements and learning information, not coursework answers." }, 400);
     if (capture.pages.reduce((n, p) => n + p.text.length, 0) > READER_AI_TEXT_LIMIT) return json({ error: "Choose fewer pages: analysis accepts at most 32,000 characters." }, 400);
   } catch { return json({ error: "Invalid capture. Select 1–8 readable pages with at most 6,000 characters each." }, 400); }
   if (!readerProvider().apiKey) return json({ error: "AI is not configured on this deployment." }, 503);
