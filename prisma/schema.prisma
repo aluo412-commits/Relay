@@ -24,6 +24,16 @@ model User {
 
   members Member[]
   readerAiBudget ReaderAiBudget?
+  studentProfile StudentProfile?
+}
+
+// Account routing metadata only; no course text or grades stored here.
+model StudentProfile {
+  userId     String @id
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  districtId String
+  revision   String @default(cuid())
+  updatedAt  DateTime @default(now()) @updatedAt
 }
 
 // Usage metadata only. Course excerpts and AI cards are never stored here.

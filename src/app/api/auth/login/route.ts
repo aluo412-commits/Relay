@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sameOrigin, limitedText, PRIVATE_HEADERS } from "@/lib/student/security";
 import { prisma } from "@/lib/db";
 import {
   verifyPassword,
@@ -13,9 +14,11 @@ export const dynamic = "force-dynamic";
 
 // POST /api/auth/login { email, password } -> sign in, select first workspace.
 export async function POST(req: NextRequest) {
+  if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
   try {
-    const { email, password } = (await req.json()) as { email?: string; password?: string };
-    const cleanEmail = email?.trim().toLowerCase();
+    const { email, password } = JSON.parse(await limitedText(req, 4096)) as { email?: string; password?: string };
+    if (typeof email !== "string" || typeof password !== "string" || password.length > 128) return NextResponse.json({ error: "Invalid credentials." }, { status: 400 });
+    const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !password) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
@@ -37,14 +40,14 @@ export async function POST(req: NextRequest) {
     });
 
     const token = await signSession(user.id);
-    const res = NextResponse.json({ user: { id: user.id, name: user.name, email: user.email } });
+    const res = NextResponse.json({ user: { id: user.id, name: user.name, email: user.email } }, { headers: PRIVATE_HEADERS });
     res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_MAX_AGE));
     if (firstMembership) {
       res.cookies.set(WORKSPACE_COOKIE, firstMembership.projectId, cookieOptions(SESSION_MAX_AGE));
-    }
+    } else res.cookies.set(WORKSPACE_COOKIE, "", cookieOptions(0));
     return res;
   } catch (err) {
     console.error("login error:", err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return NextResponse.json({ error: "Sign-in could not finish. Check your details and try again." }, { status: 500 });
   }
 }

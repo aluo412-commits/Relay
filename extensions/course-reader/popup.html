@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relay Course Reader</title><link rel="stylesheet" href="popup.css"></head><body>
-<header><span class="mark">r.</span><div><strong>Relay Course Reader</strong><span>Your courses, checked daily.</span></div><small>0.3 PILOT</small></header>
+<header><span class="mark">r.</span><div><strong>Relay Course Reader</strong><span>Your courses, checked daily.</span></div><small>0.4 PILOT</small></header>
 <main><h1>One permission.<br>A daily course check.</h1><p>Check enrolled courses automatically. Read important instructions; keep background resources as descriptions. No document picking.</p>
-<section class="daily"><h2>Daily reading <span id="sync-state">Off</span></h2><p>Checks after 8 AM Pacific, or catches up next time Chrome runs. Uses inactive tabs for a read-only, bounded text sweep.</p>
-<label class="consent"><input id="daily-consent" type="checkbox"> I allow daily reading of my enrolled courses, folders, assignments, updates and my grade overview. Save excerpts on this browser and send them locally to my open Relay dashboard when its auto-import switch is on. No passwords or cookies are exported.</label>
+<section class="daily"><p id="account-label" role="status">Checking your Relay account…</p><button id="pair-account" class="primary" disabled>Pair current Relay account</button><p class="note">First sign into Relay and choose FUHSD or PAUSD on the website. Pairing replaces this extension’s cache. Confirm the school login is yours; never share a signed-in browser profile.</p><h2>Daily reading <span id="sync-state">Off</span></h2><p>Checks after 8 AM Pacific, or catches up next time Chrome runs. Uses inactive tabs for a read-only, bounded text sweep.</p>
+<label class="consent"><input id="daily-consent" type="checkbox"> I allow daily reading of my enrolled courses, folders, assignments, updates and my grade overview. Save account-encrypted excerpts on this browser and send them locally to my open Relay dashboard when its auto-import switch is on. No passwords or cookies are exported.</label>
 <label class="consent"><input id="google-consent" type="checkbox"> Also read important linked Google Docs/Slides (optional extra permission). Reference documents stay description-only.</label>
 <p class="note">Personal browser profile only. Clear saved data before switching school accounts. PDFs, images and external tools are listed as unread, not silently skipped. This permission does NOT authorize AI uploads.</p>
 <div class="daily-actions"><button id="enable-sync" class="primary" disabled>Enable daily reading</button><button id="pause-sync">Pause</button><button id="sync-now">Sync now</button></div>
@@ -13,5 +13,5 @@
 <div id="status" role="status" aria-live="polite"></div>
 <details class="manual"><summary>Read one page manually</summary><p>For a specific page or a document you opened yourself.</p><button id="read" class="primary">Read this page <span>↓</span></button>
 <section><div class="section-head"><h2>Manual captures <span id="count">0 / 8</span></h2><button id="clear" class="text">Clear all</button></div><div id="pages"></div><p id="empty">Nothing manually captured. These captures are separate from daily sync.</p></section><button id="send" class="primary" disabled>Review selected pages in Relay <span>→</span></button><p class="note">Manual imports need confirmation in Relay. AI analysis is always a separate permission.</p></details>
-<details class="developer"><summary>Developer options</summary><label><input id="development" type="checkbox"> Send manual captures to localhost:3002</label></details>
+
 </main><script src="popup.js" type="module"></script></body></html>

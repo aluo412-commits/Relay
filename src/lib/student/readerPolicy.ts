@@ -1,3 +1,4 @@
+import { districtByOrigin } from "../../../extensions/course-reader/districts.js";
 import { isAnswerMaterial, readingPriority } from "../../../extensions/course-reader/priority.js";
 import type { ReaderPage } from "./reader";
 export function pagePriority(page: ReaderPage) {
@@ -11,7 +12,7 @@ export type SubmissionObservation = { provider: "Schoology" | "Turnitin"; status
 // These are source-text observations, not verified platform API states. Never
 // infer status from a due date, grade, button, link, or another platform's state.
 export function submissionObservations(page: ReaderPage): SubmissionObservation[] {
-  if (page.readDepth === "description" || !/^https:\/\/fuhsd\.schoology\.com\/assignment\/\d+\/?$/.test(page.url)) return [];
+  if (page.readDepth === "description" || (!districtByOrigin(new URL(page.url).origin) || !/^\/assignment\/\d+\/?$/.test(new URL(page.url).pathname))) return [];
   const entries: { provider: SubmissionObservation["provider"]; status: SubmissionObservation["status"]; quote: string }[] = [];
   for (const raw of page.text.split(/\n/)) {
     const line = raw.trim();

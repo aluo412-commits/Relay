@@ -1,9 +1,10 @@
 // Serialized into an extension-owned Schoology/Docs tab. No page scripts are run
 // from fetched HTML. Only bounded, same-origin GETs; no forms or external tools.
-export async function readSyncPage(url) {
+export async function readSyncPage(url, schoolOrigin = "https://fuhsd.schoology.com") {
   try {
+    if (!["https://fuhsd.schoology.com", "https://pausd.schoology.com"].includes(schoolOrigin)) throw new Error("Unsupported district.");
     const target = new URL(url);
-    if (target.origin !== location.origin || !["https://fuhsd.schoology.com", "https://docs.google.com"].includes(target.origin)) return { error: "The school session needs a new login.", login: true };
+    if (target.origin !== location.origin || ![schoolOrigin, "https://docs.google.com"].includes(target.origin)) return { error: "The school session needs a new login.", login: true };
     const google = target.hostname === "docs.google.com";
     if (google && !/^\/(document|presentation)\/d\/[\w-]+\/edit$/.test(target.pathname)) throw new Error("Unsupported document path.");
     if (!google && !/^\/(courses|grades\/grades|assignment\/\d+|page\/\d+|course\/\d+\/(materials(?:\/gp\/\d+)?|updates))\/?$/.test(target.pathname)) throw new Error("Unsupported school path.");
@@ -24,11 +25,15 @@ export async function readSyncPage(url) {
       }
       html += decoder.decode();
     } finally { await stream.cancel(); }
-    let text = html.trim(), title = "Linked course document", links = [], courses = [], attachments = [], services = [];
+    let text = html.trim(), title = "Linked course document", links = [], courses = [], attachments = [], services = [], schoolIdentity = null;
     const warnings = [google ? "Google text export: images, comments, layout and some document tabs may be absent." : "HTML text snapshot: dynamically loaded, collapsed or permission-restricted content may be absent. Submission status is not inferred."];
     if (!google) {
       const doc = new DOMParser().parseFromString(html, "text/html");
       if (doc.querySelector('input[type="password"],form[action*="/login"]') || /sign in|log in/i.test(doc.title) && !doc.querySelector('a[href*="/course/"]')) return { error: "Schoology login expired. Sign in, then choose Sync now.", login: true };
+      {
+        const ids = new Set(Array.from(doc.querySelectorAll('#profile a[href],#profile-menu a[href],.s-user-menu a[href],a[aria-label="Your Profile"]')).map(a => { try { const u = new URL(a.getAttribute("href"), schoolOrigin); return u.origin === schoolOrigin ? /^\/user\/(\d+)\/?$/.exec(u.pathname)?.[1] : null; } catch { return null; } }).filter(Boolean));
+        if (ids.size === 1) { const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(schoolOrigin + ":" + [...ids][0])); schoolIdentity = Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join(""); }
+      }
       const root = doc.querySelector("main,#main-content,#center-top");
       if (!root) throw new Error("Schoology did not expose readable course content in this response. Check the source in your browser.");
       root.querySelectorAll("script,style,noscript,nav,header,footer,aside,input,textarea,button,select,[hidden],[aria-hidden='true'],.comments,.s-comments,.comment,.discussion-comments").forEach(el => el.remove());
@@ -45,8 +50,8 @@ export async function readSyncPage(url) {
           // Return only safe course/doc paths; attachment URLs may contain access
           // tokens, so the report records their labels, never signed URLs.
           if (u.origin === location.origin && /^\/course\/\d+(?:\/materials)?\/?$/.test(u.pathname) && target.pathname === "/courses") courses.push({ id: u.pathname.split("/")[2], title: label });
-          if ((u.origin === "https://fuhsd.schoology.com" && /^\/(?:course\/\d+(?:\/(?:materials(?:\/gp\/\d+)?|updates))?|assignment\/\d+|page\/\d+)\/?$/.test(u.pathname)) || (u.origin === "https://docs.google.com" && /^\/(document|presentation)\/d\/[\w-]+(?:\/.*)?$/.test(u.pathname))) links.push({ url: u.href, title: label, description });
-          else if (u.origin !== "https://fuhsd.schoology.com" || /\.pdf(?:$|\?)|\/attachment\/|\/external_tool\/|\/(discussion|assessment|quiz|test|event|link)\/|docviewer/i.test(u.href)) attachments.push(label || "Unread file / unsupported link");
+          if ((u.origin === schoolOrigin && /^\/(?:course\/\d+(?:\/(?:materials(?:\/gp\/\d+)?|updates))?|assignment\/\d+|page\/\d+)\/?$/.test(u.pathname)) || (u.origin === "https://docs.google.com" && /^\/(document|presentation)\/d\/[\w-]+(?:\/.*)?$/.test(u.pathname))) links.push({ url: u.href, title: label, description });
+          else if (u.origin !== schoolOrigin || /\.pdf(?:$|\?)|\/attachment\/|\/external_tool\/|\/(discussion|assessment|quiz|test|event|link)\/|docviewer/i.test(u.href)) attachments.push(label || "Unread file / unsupported link");
         } catch { /* Non-web links aren't sources. */ }
       }
       const fileWrapper = /\/materials\/gp\//.test(target.pathname) || !!root.querySelector('iframe,object,embed');
@@ -59,7 +64,7 @@ export async function readSyncPage(url) {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url));
     const id = "page-" + [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
     const page = text.length >= 30 && target.pathname !== "/courses" ? { id, url, title, text: text.slice(0, 6000), capturedAt: new Date().toISOString(), warnings, links: [], services: [...new Set(services)], readDepth: /\/materials\/gp\//.test(target.pathname) ? "description" : "excerpt" } : null;
-    return { page, courses: courses.slice(0, 40), links: links.slice(0, 500), attachments: attachments.slice(0, 40), linkLimit: links.length > 500 || courses.length > 40, empty: !page && target.pathname !== "/courses" };
+    return { schoolIdentity, page, courses: courses.slice(0, 40), links: links.slice(0, 500), attachments: attachments.slice(0, 40), linkLimit: links.length > 500 || courses.length > 40, empty: !page && target.pathname !== "/courses" };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Source could not be read." };
   }

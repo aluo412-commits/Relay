@@ -28,8 +28,11 @@ async function main() {
     console.log("PASS: atomic concurrency limit, daily cap, next-day reset.");
     if (process.argv.includes("--ai")) {
       const origin = process.argv.includes("--production") ? "https://relay.aaronluo.com" : "http://localhost:3002";
+      await prisma.studentProfile.create({ data: { userId: user.id, districtId: "fuhsd" } });
       const token = await signSession(user.id);
-      const response = await fetch(`${origin}/api/student/analyze`, { method: "POST", headers: { Origin: origin, Cookie: `relay_session=${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ consent: true, capture: { version: 1, pages: [{ id: "synthetic-page", url: "https://fuhsd.schoology.com/assignment/991337", title: "SYNTHETIC integration fixture — not real schoolwork", capturedAt: new Date().toISOString(), text: "This is synthetic test data, not a real student assignment. Course: Example Science. Required homework: read chapter 3 and answer questions 1 and 2. Due October 15, 2026. Recommended extra practice: questions 3 and 4 are optional. Submit the paper at the beginning of class.", warnings: [], links: [] }] } }), signal: AbortSignal.timeout(55000) });
+      const profile = await (await fetch(`${origin}/api/student/profile`, { headers: { Cookie: `relay_session=${token}` } })).json();
+      assert.ok(profile.binding);
+      const response = await fetch(`${origin}/api/student/analyze`, { method: "POST", headers: { Origin: origin, Cookie: `relay_session=${token}`, "X-Relay-Student-Binding": profile.binding, "Content-Type": "application/json" }, body: JSON.stringify({ consent: true, capture: { version: 1, pages: [{ id: "synthetic-page", url: "https://fuhsd.schoology.com/assignment/991337", title: "SYNTHETIC integration fixture — not real schoolwork", capturedAt: new Date().toISOString(), text: "This is synthetic test data, not a real student assignment. Course: Example Science. Required homework: read chapter 3 and answer questions 1 and 2. Due October 15, 2026. Recommended extra practice: questions 3 and 4 are optional. Submit the paper at the beginning of class.", warnings: [], links: [] }] } }), signal: AbortSignal.timeout(55000) });
       const result = await response.json();
       assert.equal(response.status, 200, result.error || "analysis endpoint failed");
       assert.ok(result.cards.length > 0);

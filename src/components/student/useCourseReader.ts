@@ -1,13 +1,15 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { encryptLocal, decryptLocal } from "../../../extensions/course-reader/vault.js";
+import { studentHeaders, type StudentSession } from "@/lib/student/accountTypes";
 import { recordAnalyzed, useReaderAutomation } from "./useReaderAutomation";
-import { validateSyncReport } from "@/lib/student/readerSync";
+import { assertDistrictPages, validateSyncReport } from "@/lib/student/readerSync";
 import { EMPTY_READER, READER_LIBRARY_LIMIT, READER_CARD_LIMIT, isDateOnly, mergeReaderPages, quoteExists, validateCapture, type ReaderCapture, type ReaderCard, type ReaderState } from "@/lib/student/reader";
 
-const DB = "relay-course-reader-v1";
-async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+const DB = "relay-course-reader-owned-v1";
+async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>, scope: string): Promise<T> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open(DB, 1);
+    const open = indexedDB.open(`${DB}:${scope}`, 1);
     open.onupgradeneeded = () => open.result.createObjectStore("workspace");
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
@@ -31,7 +33,7 @@ function restore(value: unknown): ReaderState {
   return { version: 1, pages: capture.pages, cards, dailyReport, dailySourceIds: Array.isArray(saved.dailySourceIds) ? saved.dailySourceIds.filter(id => capture.pages.some(p => p.id === id)) : [], analyzedAt: typeof saved.analyzedAt === "string" && Number.isFinite(Date.parse(saved.analyzedAt)) ? saved.analyzedAt : null };
 }
 export type ReaderAiStatus = { identity?: string | null; authenticated: boolean; email: string | null; googleEnabled: boolean; configured: boolean; provider: string; model: string; remaining: number; dailyLimit: number };
-export function useCourseReader() {
+export function useCourseReader(account: StudentSession) {
   const [state, setState] = useState<ReaderState>(EMPTY_READER);
   const [ready, setReady] = useState(false);
   const [incoming, setIncoming] = useState<ReaderCapture | null>(null);
@@ -48,28 +50,29 @@ export function useCourseReader() {
   const busy = useRef(false);
   const persist = useCallback((next: ReaderState) => {
     current.current = next; setState(next);
-    const write = writes.current.then(async () => { if (next.pages.length || next.dailyReport) await withStore("readwrite", store => store.put(next, "current")); else await withStore("readwrite", store => store.delete("current")); return true; }).catch(() => { if (mounted.current) setError("This browser could not save the reader. Keep this page open; changes may be lost on reload."); return false; });
+    const write = writes.current.then(async () => { if (next.pages.length || next.dailyReport) { const encrypted = await encryptLocal(next, account.dataKey, account.scope); await withStore("readwrite", store => store.put(encrypted, "current"), account.scope); } else await withStore("readwrite", store => store.delete("current"), account.scope); return true; }).catch(() => { if (mounted.current) setError("This browser could not save the reader. Keep this page open; changes may be lost on reload."); return false; });
     writes.current = write; return write;
   }, []);
   const refreshAi = useCallback(async () => {
-    try { const res = await fetch("/api/student/analyze", { cache: "no-store" }); const value = await res.json(); if (!res.ok) throw new Error(value.error); if (mounted.current) setAi(value); return value as ReaderAiStatus; }
+    try { const res = await fetch("/api/student/analyze", { cache: "no-store", headers: studentHeaders(account) }); const value = await res.json(); if (!res.ok) throw new Error(value.error); if (mounted.current) setAi(value); return value as ReaderAiStatus; }
     catch { if (mounted.current) setAi(null); return null; }
   }, []);
   useEffect(() => {
     mounted.current = true;
     let stopped = false;
-    withStore("readonly", store => store.get("current")).then(value => { if (!stopped) { const restored = restore(value); current.current = restored; setState(restored); } }).catch(() => { if (!stopped) setError("Saved course pages could not be opened. You can re-import from the reader."); }).finally(() => { if (!stopped) { setReady(true); document.documentElement.dataset.relayReaderReady = "1"; } });
+    withStore("readonly", store => store.get("current"), account.scope).then(async value => { const plain = value ? await decryptLocal(value, account.dataKey, account.scope) : null; if (!stopped) { const restored = restore(plain); assertDistrictPages(restored.pages, account.district.schoology); current.current = restored; setState(restored); } }).catch(() => { if (!stopped) setError("Saved course pages could not be opened. You can re-import from the reader."); }).finally(() => { if (!stopped) { setReady(true); document.documentElement.dataset.relayReaderReady = "1"; document.documentElement.dataset.relayReaderAccount = JSON.stringify({ scope: account.scope, binding: account.binding, districtId: account.district.id }); } });
     void refreshAi();
     const receive = (event: MessageEvent) => {
-      if (event.source !== window || event.origin !== location.origin || event.data?.type !== "relay.reader.capture" || typeof event.data.id !== "string" || event.data.id.length > 100 || pending.current) return;
+      if (event.source !== window || event.origin !== location.origin || event.data?.type !== "relay.reader.capture" || event.data.binding !== account.binding || event.data.scope !== account.scope || typeof event.data.id !== "string" || event.data.id.length > 100 || pending.current) return;
       try {
         const capture = validateCapture(event.data.payload);
+        assertDistrictPages(capture.pages, account.district.schoology);
         pending.current = capture; setIncoming(capture); setError("");
         window.postMessage({ type: "relay.reader.received", id: event.data.id }, location.origin);
       } catch { setError("The reader sent an unsupported capture. No data was imported."); }
     };
     window.addEventListener("message", receive);
-    return () => { stopped = true; mounted.current = false; delete document.documentElement.dataset.relayReaderReady; window.removeEventListener("message", receive); request.current?.abort(); generation.current++; };
+    return () => { stopped = true; mounted.current = false; delete document.documentElement.dataset.relayReaderReady; delete document.documentElement.dataset.relayReaderAccount; window.removeEventListener("message", receive); request.current?.abort(); generation.current++; };
   }, [refreshAi]);
   function dismissIncoming() { pending.current = null; setIncoming(null); }
   function acceptIncoming(ids: string[]) {
@@ -98,7 +101,7 @@ export function useCourseReader() {
     busy.current = true; setAnalyzing(true); setError(""); setMessage("");
     const turn = ++generation.current; const abort = new AbortController(); request.current = abort;
     try {
-      const res = await fetch("/api/student/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ capture, consent: true, expectedAiIdentity: ai?.identity || undefined }), signal: abort.signal });
+      const res = await fetch("/api/student/analyze", { method: "POST", headers: { "Content-Type": "application/json", ...studentHeaders(account) }, body: JSON.stringify({ capture, consent: true, expectedAiIdentity: ai?.identity || undefined }), signal: abort.signal });
       const body = await res.json(); if (!res.ok) throw new Error(body.error || "Analysis failed.");
       if (turn !== generation.current || !mounted.current) return;
       const kept = current.current.cards.filter(c => !ids.includes(c.sourceId) || c.status === "accepted");
@@ -108,7 +111,7 @@ export function useCourseReader() {
       if (kept.length + additions.length > READER_CARD_LIMIT) throw new Error("The reader holds up to 1,200 cards. Remove older cards before adding another analysis.");
       const next = restore({ ...current.current, cards: [...kept, ...additions], analyzedAt: body.analyzedAt });
       persist(next);
-      try { await recordAnalyzed(capture.pages); } catch { setError("Cards returned, but analysis history could not be saved in this browser."); }
+      try { await recordAnalyzed(capture.pages, account.scope); } catch { setError("Cards returned, but analysis history could not be saved in this browser."); }
       setMessage((cards.length ? `${cards.length} evidence-linked draft${cards.length === 1 ? "" : "s"} returned. Review each card before adding it to your board.` : "No supported tasks or rules were found. Try the assignment itself or a text document; linked PDFs were not read.") + (body.rejected ? ` ${body.rejected} unsupported draft(s) were discarded.` : ""));
       return true;
     } catch (e) { if (!abort.signal.aborted) setError(e instanceof Error ? e.message : "Analysis failed."); }
@@ -117,9 +120,10 @@ export function useCourseReader() {
   async function readSaved() {
     const saved = await writes.current;
     if (saved === false) return current.current;
-    return restore(await withStore("readonly", store => store.get("current")));
+    const encrypted = await withStore("readonly", store => store.get("current"), account.scope);
+    return restore(encrypted ? await decryptLocal(encrypted, account.dataKey, account.scope) : null);
   }
-  const automation = useReaderAutomation({ current, ready, ai, analyzing, analyze, persist, readSaved, refreshAi, onError: setError });
-  return { state, ready, incoming, error, message, analyzing, ai, automation, acceptIncoming, dismissIncoming, removePage, clear, analyze, cancelAnalysis, updateCard, discardCard, refreshAi };
+  const automation = useReaderAutomation({ account, current, ready, ai, analyzing, analyze, persist, readSaved, refreshAi, onError: setError });
+  return { account, state, ready, incoming, error, message, analyzing, ai, automation, acceptIncoming, dismissIncoming, removePage, clear, analyze, cancelAnalysis, updateCard, discardCard, refreshAi };
 }
 export type CourseReaderController = ReturnType<typeof useCourseReader>;

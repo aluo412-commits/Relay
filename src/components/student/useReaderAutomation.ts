@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import type { StudentSession } from "@/lib/student/accountTypes";
+import { assertDistrictPages } from "@/lib/student/readerSync";
 import type { ReaderState } from "@/lib/student/reader";
 import { shouldAutoAnalyze } from "@/lib/student/readerPolicy";
 import { autoBatch, excerptFingerprint, mergeDailySnapshot } from "@/lib/student/readerSync";
@@ -9,18 +11,19 @@ const AUTO_LIMIT = 8;
 type Pref = { imports: boolean; aiKey: string };
 type Log = { day: string; attempts: number; completed: string[]; attempted: string[] };
 const day = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-function readLog(): Log {
-  try { const x = JSON.parse(localStorage.getItem(LOG) || "{}"); x.completed = JSON.parse(localStorage.getItem(VERSIONS) || "[]"); return { day: day(), attempts: x.day === day() && Number.isInteger(x.attempts) ? Math.max(0, x.attempts) : 0, completed: Array.isArray(x.completed) ? x.completed.filter((v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v)).slice(-3000) : [], attempted: x.day === day() && Array.isArray(x.attempted) ? x.attempted.slice(-300) : [] }; } catch { return { day: day(), attempts: 0, completed: [], attempted: [] }; }
+function readLog(scope: string): Log {
+  try { const x = JSON.parse(localStorage.getItem(`${LOG}:${scope}`) || "{}"); x.completed = JSON.parse(localStorage.getItem(`${VERSIONS}:${scope}`) || "[]"); return { day: day(), attempts: x.day === day() && Number.isInteger(x.attempts) ? Math.max(0, x.attempts) : 0, completed: Array.isArray(x.completed) ? x.completed.filter((v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v)).slice(-3000) : [], attempted: x.day === day() && Array.isArray(x.attempted) ? x.attempted.slice(-300) : [] }; } catch { return { day: day(), attempts: 0, completed: [], attempted: [] }; }
 }
-export async function recordAnalyzed(pages: { url: string; text: string }[]) {
+export async function recordAnalyzed(pages: { url: string; text: string }[], scope: string) {
   const hashes = await Promise.all(pages.map(p => excerptFingerprint(p.url, p.text)));
-  const log = readLog(); log.completed = [...new Set([...log.completed, ...hashes])].slice(-3000);
-  localStorage.setItem(VERSIONS, JSON.stringify(log.completed));
+  const log = readLog(scope); log.completed = [...new Set([...log.completed, ...hashes])].slice(-3000);
+  localStorage.setItem(`${VERSIONS}:${scope}`, JSON.stringify(log.completed));
 }
-export function useReaderAutomation({ current, ready, ai, analyzing, analyze, persist, readSaved, refreshAi, onError }: {
-  current: MutableRefObject<ReaderState>; ready: boolean; ai: ReaderAiStatus | null; analyzing: boolean;
+export function useReaderAutomation({ account, current, ready, ai, analyzing, analyze, persist, readSaved, refreshAi, onError }: {
+  account: StudentSession; current: MutableRefObject<ReaderState>; ready: boolean; ai: ReaderAiStatus | null; analyzing: boolean;
   analyze: (ids: string[], consent: boolean) => Promise<boolean | undefined>; persist: (next: ReaderState) => Promise<boolean>; readSaved: () => Promise<ReaderState>; refreshAi: () => Promise<ReaderAiStatus | null>; onError: (message: string) => void;
 }) {
+  const PREF = `relay-reader-automation-v1:${account.scope}`, LOG = `relay-reader-analysis-attempts-v1:${account.scope}`, VERSIONS = `relay-reader-analyzed-versions-v1:${account.scope}`;
   const [preferences, setPreferences] = useState<Pref>({ imports: false, aiKey: "" });
   const identity = ai?.authenticated && ai.configured && typeof ai.identity === "string" && /^[a-f0-9]{64}$/.test(ai.identity) ? ai.identity : "";
   const [pending, setPending] = useState(0);
@@ -50,12 +53,13 @@ export function useReaderAutomation({ current, ready, ai, analyzing, analyze, pe
   useEffect(() => {
     let alive = true;
     const receive = async (event: MessageEvent) => {
-      if (event.source !== window || event.origin !== location.origin || event.data?.type !== "relay.reader.daily" || typeof event.data.id !== "string" || event.data.id.length > 100 || !pref.current.imports || !latest.current.ready || latest.current.analyzing || handling.current) return;
+      if (event.source !== window || event.origin !== location.origin || event.data?.type !== "relay.reader.daily" || event.data.scope !== account.scope || event.data.binding !== account.binding || typeof event.data.id !== "string" || event.data.id.length > 100 || !pref.current.imports || !latest.current.ready || latest.current.analyzing || handling.current) return;
       handling.current = true;
       try {
         const base = await latest.current.readSaved();
         if (!alive || !pref.current.imports || latest.current.analyzing) return;
         const next = mergeDailySnapshot(base, event.data.capture, event.data.report);
+        assertDistrictPages(next.pages, account.district.schoology);
         if (await latest.current.persist(next) && alive && pref.current.imports) window.postMessage({ type: "relay.reader.synced", id: event.data.id }, location.origin);
       } catch { latest.current.onError("A daily snapshot could not be imported. No automatic AI analysis was started for that update."); }
       finally { handling.current = false; }
@@ -68,14 +72,14 @@ export function useReaderAutomation({ current, ready, ai, analyzing, analyze, pe
       if (!navigator.locks) { setAutoMessage("This browser does not support safe automatic analysis. Use Analyze manually."); return; }
       running = true;
       try {
-        await navigator.locks.request("relay-reader-auto-ai", { ifAvailable: true }, async lock => {
+        await navigator.locks.request(`relay-reader-auto-ai:${account.scope}`,  { ifAvailable: true }, async lock => {
           if (!lock || !alive) return;
           const unread = new Set(s.current.current.dailyReport?.unread.filter(x => x.scope === "source").map(x => x.url) || []);
           const pages = s.current.current.pages.filter(page => !unread.has(page.url) && shouldAutoAnalyze(page));
           const staleIds = new Set(s.current.current.cards.filter(c => c.status === "stale").map(c => c.sourceId));
           const pairs = await Promise.all(pages.map(async page => [page.id, await excerptFingerprint(page.url, page.text)] as const));
           if (!alive || !key.current || !latest.current.ai?.authenticated || latest.current.analyzing || pref.current.aiKey !== key.current || !pref.current.imports) return;
-          const fingerprints = new Map(pairs), log = readLog();
+          const fingerprints = new Map(pairs), log = readLog(account.scope);
           const staleHashes = new Set(pages.filter(page => staleIds.has(page.id)).map(page => fingerprints.get(page.id)!));
           const completed = new Set(log.completed.filter(hash => !staleHashes.has(hash)));
           const remaining = pages.filter(page => !completed.has(fingerprints.get(page.id)!));
@@ -102,5 +106,5 @@ export function useReaderAutomation({ current, ready, ai, analyzing, analyze, pe
     const focus = () => void work(); window.addEventListener("focus", focus);
     return () => { alive = false; window.removeEventListener("message", receive); window.removeEventListener("focus", focus); clearInterval(timer); };
   }, []);
-  return { autoImports: preferences.imports, autoAi: !!identity && preferences.aiKey === identity, canAutoAi: !!identity, autoMessage, pending, setAutoImports: (on: boolean) => update({ imports: on, aiKey: on ? pref.current.aiKey : "" }), setAutoAi: (on: boolean) => update({ ...pref.current, aiKey: on ? key.current : "" }), disableAutomation: () => { update({ imports: false, aiKey: "" }); try { const log = readLog(); localStorage.removeItem(VERSIONS); localStorage.setItem(LOG, JSON.stringify({ day: log.day, attempts: log.attempts, attempted: [] })); } catch { /* The visible storage error covers non-persistent private profiles. */ } } };
+  return { autoImports: preferences.imports, autoAi: !!identity && preferences.aiKey === identity, canAutoAi: !!identity, autoMessage, pending, setAutoImports: (on: boolean) => update({ imports: on, aiKey: on ? pref.current.aiKey : "" }), setAutoAi: (on: boolean) => update({ ...pref.current, aiKey: on ? key.current : "" }), disableAutomation: () => { update({ imports: false, aiKey: "" }); try { const log = readLog(account.scope); localStorage.removeItem(VERSIONS); localStorage.setItem(LOG, JSON.stringify({ day: log.day, attempts: log.attempts, attempted: [] })); } catch { /* The visible storage error covers non-persistent private profiles. */ } } };
 }

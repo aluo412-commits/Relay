@@ -1,3 +1,4 @@
+import { districtByOrigin } from "../../../extensions/course-reader/districts.js";
 // Shared validation for extension messages, local storage, and the AI endpoint.
 // Every imported page is untrusted content, never an instruction to the application.
 export const READER_MAX_PAGES = 8;
@@ -22,7 +23,7 @@ export function safeReaderUrl(value: unknown): string | null {
   try {
     const u = new URL(value);
     if (u.protocol !== "https:" || u.username || u.password || u.port) return null;
-    if (u.hostname === "fuhsd.schoology.com") {
+    if (districtByOrigin(u.origin)) {
       if (!/^\/(courses|home(?:\/assignments)?|grades\/grades|assignment\/\d+|page\/\d+|course\/\d+\/(?:materials(?:\/gp\/\d+)?|updates))\/?$/.test(u.pathname)) return null;
       const f = u.searchParams.get("f"), p = u.searchParams.get("page"); u.search = "";
       if (f && /^\d{1,20}$/.test(f)) u.searchParams.set("f", f);

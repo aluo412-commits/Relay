@@ -1,58 +1,51 @@
-# Relay Course Reader — 0.3 selective-reading pilot
+# Relay Course Reader — 0.4 account/district pilot
 
-## Install / update
+## Install or update
 
-1. Unzip https://relay.aaronluo.com/downloads/relay-course-reader.zip.
-2. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the `relay-course-reader` folder containing `manifest.json`.
-3. Already installed? Replace the files in your original extension folder and click **Reload** in Chrome. Do not install a second copy.
-4. Pin **Relay Course Reader — Pilot** from Chrome's extensions menu.
+1. Download https://relay.aaronluo.com/downloads/relay-course-reader.zip and unzip it.
+2. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the folder containing `manifest.json`.
+3. Updating? Replace the files in the original extension folder, then click **Reload**. Do not install a second copy.
 
-This is an inspectable prototype, not a Chrome Web Store release. Respect school/device extension policies.
+This is an inspectable unpacked prototype, not a Chrome Web Store release. Follow school/device extension policies.
 
-## Enable daily reading
+## One-time setup
 
-1. Sign into https://fuhsd.schoology.com yourself. Never provide passwords, MFA codes or session cookies to Relay.
-2. Open the extension. Review the permission checkbox and click **Enable daily reading**. Approve Chrome's optional Schoology site permission. Reading linked Google Docs/Slides is a separate optional site permission.
-3. Open https://relay.aaronluo.com/?reader=import. Turn on **Automatically import daily snapshots**. Allow about a minute for the report to arrive.
-4. Optionally sign into Relay and enable **Automatically analyze new or changed excerpts**. This separate permission sends saved course text, titles and source URLs to Relay's server and the displayed AI provider. Provider retention terms apply. Draft cards still need review before joining the board.
+1. Sign into https://relay.aaronluo.com and choose **FUHSD** or **Palo Alto Unified (PAUSD)**. This is your Relay account, not a school-password form.
+2. Sign into your selected school's official site yourself:
+   - FUHSD: https://fuhsd.schoology.com
+   - PAUSD: https://pausd.schoology.com (ClassLink login)
+3. Open the extension and click **Pair current Relay account**. Confirm the displayed account/district and that the school login belongs to you. Pairing replaces the extension cache, not saved account libraries on the website.
+4. Review the daily-reading permission and click **Enable daily reading**. Chrome asks only for the selected school's host. Linked Google Docs/Slides need separate optional access.
+5. In Relay **Connections**, turn on **Automatically import daily snapshots**. Optionally grant separate **automatic AI** permission. No document-by-document selection is needed. Use **Sync now** for the first sweep.
 
-Checks run after 8 AM Pacific or catch up when Chrome next runs. The browser must be running and the school session valid. Relay itself need not stay open for collection. Open Relay to receive results; automatic AI runs only while the dashboard is visible and online. **Sync now** starts an immediate sweep. **Pause** stops further reads; re-enable to resume an unfinished sweep. After an expired login, sign in and choose Sync now.
+After 8 AM Pacific, or next time Chrome runs, the extension checks courses. Chrome and the Relay/school sessions must remain valid; Relay's webpage need not stay open for collection. Open it to receive snapshots. AI runs only while the dashboard is visible and online. Signing out, signing in again or changing accounts/districts invalidates pairing. A school-login fingerprint change pauses reading when the layout exposes that identity. If it cannot be verified, a warning is shown: use a personal browser profile and confirm the school login before pairing.
 
-## Automatic, not a document-selection queue
+## Selective, read-only collection
 
-After the one-time collection/import/AI permissions, no document selection is required. Relay uses local title/description signals to prioritize assignment instructions, syllabi, calendars, rubrics, lab instructions and feedback. The LLM then extracts source-backed requirements and learning notes from the readable important excerpts. This first priority router is a heuristic, not an AI verdict about unseen contents; ambiguous titles stay explicitly unverified.
+The extension discovers enrolled courses and follows allow-listed material folders, assignments, pages and updates. It reads the student's grade overview as text, not as verified submission states or grade projections. No roster, submission, assessment-launch or arbitrary external-tool actions are followed.
 
-Other linked resources are retained as descriptions from their linking page, without downloading their document bodies just to classify them. Course/folder indexes still have to be read to discover links. Previously captured or manually opened documents can still exist locally; automatic AI now filters them by importance. Manual tools remain optional and collapsed in Relay.
+Local title/description signals prioritize instructions, syllabi, calendars, rubrics, labs and feedback. The LLM organizes readable important excerpts into an automatic dashboard brief. Ordinary/ambiguous linked resources remain descriptions from their linking pages, without fetching document bodies just to classify them. Priority routing is a heuristic and can miss important material; uncertainty stays visible. Old/manual captures can remain locally but are filtered before automatic AI.
 
-The Overview automatically shows a concise course brief without making the student select sources or accept every card first. These are labeled AI drafts, not verified assignments or Schoology mutations. Requirements, dates, rules and source-grounded learning notes only—no answers, worked solutions, generated essay wording or answer-revealing hints. Known answer/example materials and description-only records are excluded from model extraction.
+- Up to 40 courses / 240 URLs per sweep, fair shares per course; 300 retained excerpts, 6,000 characters each. Limits are reported.
+- PDF interiors, images, unsupported links, LTI/external tools and dynamic-only content remain unread. A file wrapper is not its contents.
+- No login/MFA/export-policy bypass. Real school layouts still need validation on the permitted student's account.
+- Requirements, planning and source-grounded learning notes only: no coursework answers, solutions or generated submission text. AI drafts are not verified tasks and never submit work.
+- Only explicit personal status labels in individual assignment snapshots become observations. Turnitin and Schoology are separate; a Turnitin link alone means unknown. A direct live Turnitin connector is not implemented.
 
-Submission checks only recognize explicit personal status labels in individual Schoology assignment snapshots. A linked Turnitin tool alone yields **unknown**; Schoology submission does not prove Turnitin submission, and grades/dates do not prove missing work. No direct authenticated Turnitin connector or automatic LTI launch is implemented. Observations include their source, evidence and read time and never mark work done automatically.
+## Account privacy
 
-## What is read
+New extension snapshots, manual captures and queue state are encrypted in Chrome local storage. New website libraries are encrypted in separate account/district IndexedDB stores. Decryption keys come from the authenticated account endpoint and are not saved in browser storage. No course text is stored in Relay's database or synchronized across devices. Account/district preference and AI usage metadata are stored server-side.
 
-The reader discovers enrolled courses from Schoology's course directory, then follows allow-listed material folders, assignment pages, course pages and updates. It also reads the student's global grade overview as text—not verified submission states or grade projections. With additional permission it reads linked Google Docs/Slides text exports. It never follows roster, submission, quiz-launch or external-tool actions.
+Old unassigned plaintext browser captures and global connector cookies are not silently claimed by a new account. Pairing clears old extension captures; old website stores remain unassigned and may still be plaintext on disk. Clear legacy data before sharing a device. Application isolation does not protect against someone using an already signed-in session, malware or browser administrator access; sign out of both Relay and school services and use separate browser profiles.
 
-This is a bounded **text sweep**, not a guarantee of every item in Schoology:
-- Up to 40 discovered courses, 240 URLs per sweep with a per-course fair share, 300 retained excerpts, and 6,000 characters per excerpt. New/oldest cached links get priority; limits are reported.
-- PDF interiors, images, external tools, unsupported links and dynamic-only content are not read. Unread notices and truncation warnings remain visible. A file wrapper is not its attachment's content.
-- No access-control, export restriction, SSO or MFA bypass. Course discovery and live school layouts still require validation on the user's permitted account.
-- Only GET reads. No homework submissions, messages, grade changes or generated graded answers. Normal source access may be recorded by Schoology. Follow course AI-use policies.
+Pause collection in the extension. Turn off imports/automatic AI separately on the website. **Delete synced data & revoke access** removes the paired extension cache and site grants; clear manual captures separately. **Clear reader data** removes that account/district's website copy and disables its automation. Requests already started may finish.
 
-## Data and permissions
+## Permissions / AI
 
-Daily settings, queue, coverage and excerpts persist in **Chrome local storage**, not Chrome sync or Relay's database. Manual single-page capture remains under **Read one page manually**, staging up to 8 pages in Chrome session storage and requiring import confirmation.
+Required: `activeTab`, `scripting`, `storage`, `alarms`, and Relay host access for authenticated account checks and local handoff. Optional: only FUHSD Schoology, PAUSD Schoology, and Google Docs. No cookies API, history, webRequest, all-sites access or remote executable code. Browser credentials accompany normal allowed requests; passwords/session cookies are never exported.
 
-Relay stores imported excerpts and cards in browser IndexedDB. Neither local store is encrypted by this prototype. They belong to a browser profile, not a school-user identity: use a personal profile and clear both stores before sharing or switching school accounts.
+Collection uses extension-owned inactive tabs and leaves activated/adopted tabs open. Manual reading remains an optional advanced tool, bound to the paired account/district.
 
-- `activeTab`, `scripting`: manual capture and explicitly authorized isolated-world reading/delivery.
-- `storage`, `alarms`: local storage and resumable daily scheduling.
-- Required host: only `https://relay.aaronluo.com/*` for local delivery.
-- Optional hosts: Schoology and Google Docs for daily reading; localhost:3002 for manual development tests.
-- No cookies API, history, webRequest, all-sites, Drive-wide or remote executable-code permission. Browser credentials are used normally by the source tab and are never exported.
-- Collection uses extension-owned inactive tabs, without navigating user tabs. Unused owned tabs are closed; a tab the user activates is retained.
+AI is separate consent: selected important text, titles and source URLs go to Relay's server and the named provider; provider retention terms apply. Up to five excerpts per automatic request and eight automatic attempts/day inside the shared server-enforced 12-request user quota. Queues can span days. Successful unchanged versions are not repeatedly analyzed. Consent is bound to the account/session/district and provider/model.
 
-Turn off automatic imports in Relay to stop automatic imports and future automatic AI there. Pause reading in the extension separately. **Delete synced data & revoke access** removes the extension's daily data and site grants; clear manual captures separately. **Clear reader data** removes Relay's local copy and disables its automation. Copies in the other location are not automatically erased. Requests already sent may finish.
-
-AI: at most 5 excerpts per automatic request and 8 automatic requests per Pacific day, within the server-enforced shared 12-request account quota. Queued excerpts can span multiple days. Successful unchanged versions are not re-analyzed; failures do not trigger rapid retries. Recurring permission is bound to the Relay account and displayed provider/model. No automatic card publication.
-
-Source and implementation details: https://github.com/aluo412-commits/Relay/tree/main/extensions/course-reader
+Source and security details: https://github.com/aluo412-commits/Relay/blob/main/docs/student-accounts.md

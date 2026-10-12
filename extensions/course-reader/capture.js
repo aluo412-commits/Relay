@@ -1,12 +1,13 @@
 // Executed in the active tab's ISOLATED world only after a user action.
 // Keep this function self-contained: Chrome serializes it across contexts.
-export async function readActivePage() {
+export async function readActivePage(schoolOrigin = "https://fuhsd.schoology.com") {
   try {
+  if (!["https://fuhsd.schoology.com", "https://pausd.schoology.com"].includes(schoolOrigin)) throw new Error("Unsupported district.");
   function safeUrl(value) {
     try {
       const u = new URL(value, location.href);
       if (u.protocol !== "https:" || u.username || u.password || u.port) return null;
-      if (u.hostname === "fuhsd.schoology.com") {
+      if (u.origin === schoolOrigin) {
         if (!/^\/(home(?:\/assignments)?|grades\/grades|assignment\/\d+|page\/\d+|course\/\d+\/(?:materials(?:\/gp\/\d+)?|updates))\/?$/.test(u.pathname)) return null;
         const folder = u.searchParams.get("f");
         u.search = folder && /^\d{1,20}$/.test(folder) ? `?f=${folder}` : "";
@@ -19,7 +20,7 @@ export async function readActivePage() {
     } catch { return null; }
   }
   const url = safeUrl(location.href);
-  if (!url) throw new Error("Open a FUHSD Schoology course, assignment, grades page, or a Google Doc/Slides file first. Login and external-tool pages are not read.");
+  if (!url) throw new Error("Open a Schoology course in your selected district, or an allowed Google Doc/Slides file first. Login and external-tool pages are not read.");
   const warnings = [];
   let text = "";
   let links = [];

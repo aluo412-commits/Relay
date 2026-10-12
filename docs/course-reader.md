@@ -1,4 +1,6 @@
-# Browser course reader — 0.3 selective-reading pilot
+# Browser course reader — 0.4 account/district pilot
+
+Account ownership, encryption, pairing, migration and PAUSD routing are documented in [student-accounts.md](student-accounts.md). Version 0.4 requires a signed-in Relay account and an explicit district choice; old unowned captures are not automatically migrated.
 
 See [installation and user-facing boundaries](../extensions/course-reader/README.md). Version 0.2 added opt-in daily collection; 0.3 makes the normal experience automatic and selective, with a dashboard brief rather than a document-selection queue. Manual overrides remain in a collapsed advanced section.
 
@@ -24,15 +26,15 @@ Submission observations are deterministic and independent of model judgments. On
 
 Three independent choices: (1) permit extension collection; (2) permit automatic local import into Relay; (3) permit recurring AI uploads. All are off initially. Calendar/Gmail connector data is never silently included in reader AI.
 
-Daily captures persist in `chrome.storage.local`; manual captures use `chrome.storage.session`. Imported excerpts, reports and cards use `relay-course-reader-v1` IndexedDB. Preferences, opaque content fingerprints and automatic usage counters use localStorage. These are unencrypted browser-profile stores, **not school-account isolation or the future offline hardware architecture**. Anyone with this profile can read them; clear both extension and dashboard copies before sharing or switching school accounts. Revoking permissions does not retroactively erase local copies. Pausing collection does not revoke separately enabled AI for already imported content.
+Daily and manual captures are encrypted in an account-bound extension vault in `chrome.storage.local`. Imported data uses encrypted `relay-course-reader-owned-v1:<scope>` IndexedDB databases. Decryption keys require the current authenticated account and are never persisted in localStorage. Preferences, opaque fingerprints, counters and checkmarks are account/district-namespaced. This is application isolation, not protection against a compromised or already signed-in device, and it is not the future offline hardware architecture. Legacy unowned stores remain unassigned. Pausing collection does not revoke separately enabled AI for already imported content.
 
-AI requests send selected text, titles and source URLs to Relay's server and the configured OpenAI-compatible provider. No school credentials are exported. Provider retention terms apply. The UI names the provider/model, and continuing AI consent uses an opaque server identity bound to Relay user ID + provider host + model. Automatic work rechecks status before a batch; POST rejects a supplied mismatched identity before a provider call or quota reservation. Older manual clients without this field remain compatible.
+AI requests send selected text, titles and source URLs to Relay's server and the configured OpenAI-compatible provider. No school credentials are exported. Provider retention terms apply. The UI names the provider/model, and continuing AI consent uses an opaque server identity bound to Relay login-session/district binding + provider host + model. Automatic work rechecks status before a batch; POST rejects a supplied mismatched identity before a provider call or quota reservation. Older manual clients without this field remain compatible.
 
 Server boundaries remain: same origin, Relay authentication, explicit consent, 200 KB request body, 1–8 excerpts, 6,000 chars/page, 32,000 total chars, one provider call, no tools, no retry, 45-second timeout, 4,500 output tokens. Every draft requires a real matching source quote. Dates need explicit year/date evidence, optional work stays optional, and all publication requires human review. Quote matching is not proof of correct interpretation. No homework answers, automatic submissions or messages.
 
 ## Database / deployment
 
-Versions 0.2 and 0.3 need **no additional migration**. The 0.1 `ReaderAiBudget` table stores only user ID, Pacific day, request count, short in-flight lease and timestamp. It contains no excerpts, model responses or cards; application logging does not print them.
+Version 0.4 adds the metadata-only StudentProfile table. Run `node scripts/apply-student-profile.mjs --apply` once; do not reset existing tables. The 0.1 `ReaderAiBudget` table stores only user ID, Pacific day, request count, short in-flight lease and timestamp. It contains no excerpts, model responses or cards; application logging does not print them.
 
 For an installation that has not applied the additive 0.1 table:
 
@@ -43,7 +45,7 @@ npx prisma generate
 
 Never reset existing tables. PostgreSQL atomically enforces one concurrent request and 12 requests per user/day across serverless instances. Failed/canceled attempts can count. Per-user quotas do not replace signup/abuse controls needed before broad release.
 
-Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains eleven source/documentation files and no credentials.
+Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains fourteen source/documentation files and no credentials.
 
 ## Verification
 
@@ -59,6 +61,6 @@ PLAYWRIGHT_MODULE=/path/to/playwright node scripts/verify-reader-extension.mjs -
 npx tsx scripts/verify-reader-integration.ts --run --ai
 ```
 
-The extension integration test loads the actual unpacked extension in a temporary Chrome profile. Schoology/Docs content and AI responses are fixtures; test-only host permissions are pre-granted and initial source-tab navigation is delayed so Playwright can attach fixture routing. It verifies multi-course discovery, nested folders, linked exports, unread-file notices, local automatic imports, separate AI consent, incremental changes, stale cards, pause, expired login, persisted preferences and mobile overflow. It does **not** establish native host-consent UI behavior, district policy approval or successful reading of the student's live courses. Temporary test profiles are deleted. The 0.3 test additionally verifies that a reference Google document is never fetched, its description never enters an AI request, the automatic brief appears without selecting documents, and an explicit Schoology Submitted label does not become a Turnitin Submitted claim.
+The extension integration test loads the actual unpacked extension in a temporary Chrome profile. Run both the default FUHSD fixture and `--pausd`. In 0.4 its account endpoint is mocked too; `verify-student-accounts.ts --run --browser` separately tests real authenticated HTTP and native extension-cookie behavior. Schoology/Docs content and AI responses are fixtures; test-only host permissions are pre-granted and initial source-tab navigation is delayed so Playwright can attach fixture routing. It verifies multi-course discovery, nested folders, linked exports, unread-file notices, local automatic imports, separate AI consent, incremental changes, stale cards, pause, expired login, persisted preferences and mobile overflow. It does **not** establish native host-consent UI behavior, district policy approval or successful reading of the student's live courses. Temporary test profiles are deleted. The 0.3 test additionally verifies that a reference Google document is never fetched, its description never enters an AI request, the automatic brief appears without selecting documents, and an explicit Schoology Submitted label does not become a Turnitin Submitted claim.
 
 Unit coverage includes Pacific/DST catch-up, path restrictions, queue deduplication/limits, library-vs-AI payload bounds, stable IDs, changed/failed-source invalidation and version-aware AI batching, alongside the original evidence/date/security tests. Real provider tests use synthetic text only. The student's permitted account is still needed to verify actual Schoology layouts and Google export behavior.

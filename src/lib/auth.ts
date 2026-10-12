@@ -3,6 +3,7 @@
 // derives who you are and which workspace you're in — the client never asserts it.
 
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 
@@ -34,6 +35,7 @@ export async function signSession(userId: string): Promise<string> {
   return new SignJWT({ uid: userId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
+    .setJti(randomUUID())
     .setExpirationTime(`${SESSION_DAYS}d`)
     .sign(secret());
 }

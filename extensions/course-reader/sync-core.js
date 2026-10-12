@@ -1,12 +1,13 @@
+import { districtByOrigin } from "./districts.js";
 // Pure scheduling/queue rules, also exercised by the app's test runner.
 export const SCHOOL = "https://fuhsd.schoology.com";
 export const PAGE_LIMIT = 240;
 export const SOURCE_LIMIT = 300;
 export function schoolUrl(value, base = SCHOOL) {
-  if (typeof value !== "string" || value.length > 1200) return null;
+  if (typeof value !== "string" || value.length > 1200 || !districtByOrigin(base)) return null;
   try {
     const u = new URL(value, base);
-    if (u.origin !== SCHOOL || u.username || u.password) return null;
+    if (u.origin !== base || u.username || u.password) return null;
     if (/^\/course\/\d+\/?$/.test(u.pathname)) u.pathname = u.pathname.replace(/\/$/, "") + "/materials";
     if (!/^\/(courses|grades\/grades|assignment\/\d+|page\/\d+|course\/\d+\/(materials(?:\/gp\/\d+)?|updates))\/?$/.test(u.pathname)) return null;
     const f = u.searchParams.get("f"), p = u.searchParams.get("page");

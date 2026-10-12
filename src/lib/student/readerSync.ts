@@ -27,6 +27,12 @@ export function mergeDailySnapshot(current: ReaderState, rawCapture: unknown, ra
   const unread = new Set(report.unread.filter(x => x.scope === "source").map(x => x.url));
   return { ...next, dailyReport: report, dailySourceIds: next.pages.filter(p => capture.pages.some(x => x.url === p.url)).map(p => p.id), cards: next.cards.map(c => unread.has(c.sourceUrl) ? { ...c, status: "stale" } : c) };
 }
+export function assertDistrictPages(pages: { url: string; descriptionSource?: string }[], schoolOrigin: string) {
+  for (const p of pages) for (const value of [p.url, p.descriptionSource].filter(Boolean)) {
+    const url = new URL(value!);
+    if (url.hostname.endsWith(".schoology.com") && url.origin !== schoolOrigin) throw new Error("These sources belong to another district. Reconnect the reader for the current account.");
+  }
+}
 export async function excerptFingerprint(url: string, text: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url + "\n" + text));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");

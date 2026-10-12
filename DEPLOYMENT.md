@@ -1,5 +1,9 @@
 # Deploying Relay
 
+For current student account/district setup and the additive StudentProfile migration,
+see [student-accounts.md](docs/student-accounts.md). The team-workspace setup below
+is retained for legacy routes; do not reset a live database to enable student features.
+
 Relay is a Next.js 15 app with a Postgres database (via Prisma) and self-hosted
 email + password accounts. This guide takes you from a clean machine to a live URL on
 **Vercel + Neon Postgres**.
@@ -109,8 +113,9 @@ The "Continue with Google" button appears only when `GOOGLE_CLIENT_ID` and
 Notes:
 - The redirect URI is derived from the request origin, so the same code works on
   localhost and production — just register both URIs above.
-- If someone signed up with email + password and later uses Google with the **same
-  email**, the accounts are linked automatically.
+- Matching email text alone no longer links Google to an existing password account.
+  The user must already be signed into that Relay account before linking; a different
+  existing Google identity is never overwritten.
 - Google-only accounts have no password; the login form tells them to use Google.
 
 ## Inviting teammates
