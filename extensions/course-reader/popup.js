@@ -41,17 +41,22 @@ $("pair-account").addEventListener("click", async () => {
   if (!account || !confirm(`Pair with ${account.email} (${account.districtId})? Confirm that the current Schoology login belongs to you. This replaces the extension cache, not the account libraries in Relay.`)) return;
   renderSync(await action({ type: "sync-pair" }));
 });
-let enabled = false;
+let enabled = false, websiteIsReady = false;
 function renderSync(result) {
-  if (!result?.ok) { account = null; paired = false; pages = []; render(); $("sync-report").replaceChildren(); $("account-label").textContent = "Account unavailable. Open Relay and sign in."; $("sync-summary").textContent = "No verified account."; $("enable-sync").disabled = true; $("pair-account").disabled = true; return; }
+  if (!result?.ok) { account = null; paired = false; enabled = false; websiteIsReady = false; $("pause-sync").disabled = true; $("sync-now").disabled = true; $("school-portal").hidden = true; pages = []; render(); $("sync-report").replaceChildren(); $("account-label").textContent = "Account unavailable. Open Relay and sign in."; $("sync-summary").textContent = "No verified account."; $("enable-sync").disabled = true; $("pair-account").disabled = true; return; }
   const changed = account?.binding !== result.account?.binding;
   account = result.account; paired = result.paired === true;
-  $("account-label").textContent = account ? `${account.email} · ${districtById(account.districtId)?.short} · ${paired ? "Paired" : "Pairing needed"}` : "Sign into Relay and choose a district first.";
+  $("account-label").textContent = account ? `${account.email} · ${districtById(account.districtId)?.short} · ${paired ? "Paired" : "Pairing needed"}` : (result.message || "Open Relay and choose your school first.");
   $("pair-account").disabled = !account;
   if (!paired || changed) { pages = []; render(); }
   enabled = result.settings.enabled;
+  websiteIsReady = result.websiteReady === true;
+  $("website-ready").textContent = websiteIsReady ? "Website ready to receive your course checks. AI permission remains a separate choice in Relay." : enabled ? "Website not open/ready. Reading can continue locally; open Relay and enable imports to receive results. AI only runs on the visible dashboard." : "Before enabling reading: open guided setup in Relay and turn on Automatically import daily snapshots in this account.";
+  const district = districtById(account?.districtId);
+  $("school-portal").hidden = !district;
+  if (district) { $("school-portal").href = district.schoology; $("school-portal").textContent = `Open ${district.short} Schoology →`; }
   $("sync-state").textContent = enabled ? "On" : "Off";
-  $("enable-sync").disabled = !paired || enabled || !$("daily-consent").checked;
+  $("enable-sync").disabled = !paired || !websiteIsReady || enabled || !$("daily-consent").checked;
   $("pause-sync").disabled = !enabled;
   $("sync-now").disabled = !enabled || result.report?.status === "running";
   $("google-consent").disabled = enabled;
@@ -67,16 +72,16 @@ function renderSync(result) {
   }
   syncButtons();
 }
-$("daily-consent").addEventListener("change", () => { $("enable-sync").disabled = !paired || enabled || !$("daily-consent").checked; });
+$("daily-consent").addEventListener("change", () => { $("enable-sync").disabled = !paired || !websiteIsReady || enabled || !$("daily-consent").checked; });
 $("enable-sync").addEventListener("click", async () => {
-  if (!$("daily-consent").checked) return;
+  if (!$("daily-consent").checked || !websiteIsReady) { status("Prepare Relay first: open guided setup and enable automatic local imports.", true); return; }
   const district = districtById(account?.districtId); if (!paired || !district) return;
   const origins = [district.schoology + "/*"];
   if ($("google-consent").checked) origins.push("https://docs.google.com/*");
   try {
     if (!await chrome.permissions.request({ origins })) { status("Daily reading is off because access was not granted.", true); return; }
     const result = await action({ type: "sync-enable", google: $("google-consent").checked });
-    renderSync(result); if (result) status("Daily reading enabled. In Relay Connections, turn on automatic local imports. AI uploads remain a separate permission.");
+    renderSync(result); if (result) status("Daily reading enabled. Click Sync now, then return to Relay to allow AI analysis if desired. Reading alone does not create assignments.");
   } catch (e) { status(e.message, true); }
 });
 $("pause-sync").addEventListener("click", async () => { renderSync(await action({ type: "sync-pause" })); status("Daily reads paused. Saved excerpts remain available. Disable automatic AI separately in Relay if desired."); });

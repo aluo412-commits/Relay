@@ -28,6 +28,7 @@ export function useReaderAutomation({ account, current, ready, ai, analyzing, an
   const identity = ai?.authenticated && ai.configured && typeof ai.identity === "string" && /^[a-f0-9]{64}$/.test(ai.identity) ? ai.identity : "";
   const [pending, setPending] = useState(0);
   const [autoMessage, setAutoMessage] = useState("");
+  const [autoState, setAutoState] = useState<"idle" | "running" | "ready" | "blocked">("idle");
   const latest = useRef({ current, ready, ai, analyzing, analyze, persist, readSaved, refreshAi, onError }); latest.current = { current, ready, ai, analyzing, analyze, persist, readSaved, refreshAi, onError };
   const pref = useRef(preferences), key = useRef(identity); key.current = identity;
   const handling = useRef(false);
@@ -66,10 +67,11 @@ export function useReaderAutomation({ account, current, ready, ai, analyzing, an
     };
     window.addEventListener("message", receive);
     let running = false, retryStatusAt = 0;
+    const report = (message: string, state: "running" | "ready" | "blocked") => { setAutoMessage(message); setAutoState(state); };
     const work = async () => {
       const p = pref.current, s = latest.current;
       if (running || !s.ready || s.analyzing || handling.current || !p.imports || !key.current || p.aiKey !== key.current || !s.ai?.authenticated || !s.ai.configured || document.hidden || !navigator.onLine || s.current.current.dailyReport?.status === "running") return;
-      if (!navigator.locks) { setAutoMessage("This browser does not support safe automatic analysis. Use Analyze manually."); return; }
+      if (!navigator.locks) { report("This browser does not support safe automatic analysis. Use Analyze manually.", "blocked"); return; }
       running = true;
       try {
         await navigator.locks.request(`relay-reader-auto-ai:${account.scope}`,  { ifAvailable: true }, async lock => {
@@ -84,27 +86,27 @@ export function useReaderAutomation({ account, current, ready, ai, analyzing, an
           const completed = new Set(log.completed.filter(hash => !staleHashes.has(hash)));
           const remaining = pages.filter(page => !completed.has(fingerprints.get(page.id)!));
           setPending(remaining.length);
-          if (!remaining.length) { setAutoMessage("Important readable instructions are up to date. Background resources stay description-only; ambiguous or unread sources are not assumed complete."); return; }
-          if (log.attempts >= AUTO_LIMIT) { setAutoMessage(`${remaining.length} excerpts waiting. Automatic limit: 8 requests per Pacific day, within your shared 12-request quota. Continues on a later day when Relay is open.`); return; }
+          if (!remaining.length) { report("Important readable instructions are up to date. Background resources stay description-only; ambiguous or unread sources are not assumed complete.", "ready"); return; }
+          if (log.attempts >= AUTO_LIMIT) { report(`${remaining.length} excerpts waiting. Automatic limit: 8 requests per Pacific day, within your shared 12-request quota. Continues on a later day when Relay is open.`, "blocked"); return; }
           if (Date.now() < retryStatusAt) return;
           const fresh = await latest.current.refreshAi();
           if (!alive || !fresh?.authenticated || fresh.identity !== pref.current.aiKey || !pref.current.imports || latest.current.analyzing || handling.current) return;
-          if (!fresh.remaining) { retryStatusAt = Date.now() + 60000; setAutoMessage("Shared AI quota used. Excerpts remain local; availability is rechecked while this dashboard is open."); return; }
+          if (!fresh.remaining) { retryStatusAt = Date.now() + 60000; report("Shared AI quota used. Excerpts remain local; availability is rechecked while this dashboard is open.", "blocked"); return; }
           const batch = autoBatch(pages, new Set([...completed, ...log.attempted]), fingerprints);
-          if (!batch.length) { setAutoMessage("Some excerpts are deferred after an attempt today. They can retry tomorrow, or you can review the source and try manually."); return; }
+          if (!batch.length) { report("Some excerpts are deferred after an attempt today. They can retry tomorrow, or you can review the source and try manually.", "blocked"); return; }
           log.attempts++; log.attempted.push(...batch.map(page => fingerprints.get(page.id)!));
           // Reserve in local storage while holding a cross-tab lock; failed
           // attempts are not retried in a tight loop or billed repeatedly today.
           localStorage.setItem(LOG, JSON.stringify({ day: log.day, attempts: log.attempts, attempted: log.attempted }));
-          setAutoMessage(`Automatically analyzing ${batch.length} important new or changed sources · ${log.attempts}/${AUTO_LIMIT} automatic requests today.`);
+          report(`Automatically analyzing ${batch.length} important new or changed sources · ${log.attempts}/${AUTO_LIMIT} automatic requests today.`, "running");
           await latest.current.analyze(batch.map(page => page.id), true);
         });
-      } catch { if (alive) setAutoMessage("Automatic analysis paused after a local error. Your imported sources remain available."); }
+      } catch { if (alive) report("Automatic analysis paused after a local error. Your imported sources remain available.", "blocked"); }
       finally { running = false; }
     };
     const timer = window.setInterval(() => void work(), 10000);
     const focus = () => void work(); window.addEventListener("focus", focus);
     return () => { alive = false; window.removeEventListener("message", receive); window.removeEventListener("focus", focus); clearInterval(timer); };
   }, []);
-  return { autoImports: preferences.imports, autoAi: !!identity && preferences.aiKey === identity, canAutoAi: !!identity, autoMessage, pending, setAutoImports: (on: boolean) => update({ imports: on, aiKey: on ? pref.current.aiKey : "" }), setAutoAi: (on: boolean) => update({ ...pref.current, aiKey: on ? key.current : "" }), disableAutomation: () => { update({ imports: false, aiKey: "" }); try { const log = readLog(account.scope); localStorage.removeItem(VERSIONS); localStorage.setItem(LOG, JSON.stringify({ day: log.day, attempts: log.attempts, attempted: [] })); } catch { /* The visible storage error covers non-persistent private profiles. */ } } };
+  return { autoImports: preferences.imports, autoAi: !!identity && preferences.aiKey === identity, canAutoAi: !!identity, autoState, autoMessage, pending, setAutoImports: (on: boolean) => update({ imports: on, aiKey: on ? pref.current.aiKey : "" }), setAutoAi: (on: boolean) => update({ ...pref.current, aiKey: on ? key.current : "" }), disableAutomation: () => { update({ imports: false, aiKey: "" }); try { const log = readLog(account.scope); localStorage.removeItem(VERSIONS); localStorage.setItem(LOG, JSON.stringify({ day: log.day, attempts: log.attempts, attempted: [] })); } catch { /* The visible storage error covers non-persistent private profiles. */ } } };
 }

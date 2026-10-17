@@ -1,0 +1,48 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { SCHOOLS, parseSchool, publicSchoolUrl, schoolStorageKey } from "./schools";
+import { schoolSearchUrl, parseSchoolResults, NCES_SOURCE } from "./schoolDirectory";
+import { setupNext, type SetupFacts } from "./setup";
+const base: SetupFacts = { imports: false, detected: false, paired: false, enabled: false, pages: 0, readable: 0, aiAvailable: false, configured: false, consent: false, analyzing: false, drafts: 0, analyzed: false, remaining: 0, error: "" };
+test("setup distinguishes collection, import, analysis and evidence review", () => {
+  assert.equal(setupNext(base).stage, 1);
+  assert.equal(setupNext({ ...base, imports: true }).stage, 2);
+  assert.equal(setupNext({ ...base, imports: true, detected: true, paired: true }).stage, 3);
+  assert.equal(setupNext({ ...base, imports: true, pages: 10 }).title, "Text arrived. AI availability needs checking.");
+  const saved = { ...base, imports: true, pages: 10, readable: 3, aiAvailable: true, configured: true };
+  assert.equal(setupNext(saved).title, "Text arrived. Assignment analysis is off.");
+  assert.equal(setupNext({ ...saved, consent: true, remaining: 2 }).tone, "waiting");
+  assert.equal(setupNext({ ...saved, consent: true, analyzing: true }).tone, "waiting");
+  assert.equal(setupNext({ ...saved, consent: true, drafts: 2 }).stage, 5);
+  assert.equal(setupNext({ ...saved, consent: true, readable: 0 }).stage, 3);
+  assert.match(setupNext({ ...saved, consent: true, remaining: 0 }).title, /quota/);
+  assert.match(setupNext({ ...saved, consent: true, remaining: 5, blocked: "Local daily limit reached" }).detail, /Local daily limit/);
+  assert.equal(setupNext({ ...saved, status: "login-required" }).stage, 3);
+  assert.equal(setupNext({ ...saved, consent: true, error: "Provider unavailable" }).detail, "Provider unavailable");
+});
+test("federal school lookup is bounded, parameterized and does not invent portals", () => {
+  const url = schoolSearchUrl("O'Neill", "CA");
+  assert.equal(url.origin, "https://nces.ed.gov");
+  assert.ok(url.href.startsWith(NCES_SOURCE));
+  assert.ok(url.searchParams.get("where")?.includes("O''NEILL"));
+  assert.equal(url.searchParams.get("resultRecordCount"), "20");
+  for (const bad of ["%", "a", "x".repeat(81), "foo; SELECT"]) assert.throws(() => schoolSearchUrl(bad));
+  assert.throws(() => schoolSearchUrl("Fremont", "CA' OR 1=1"));
+  const records = parseSchoolResults({ features: [{ attributes: { NCESSCH: "061443001696", NAME: "Fremont High", CITY: "Sunnyvale", STATE: "CA" } }, { attributes: { NCESSCH: "062805013062", NAME: "Fremont High", CITY: "Oakland", STATE: "CA" } }] });
+  assert.equal(records[0].districtId, "fuhsd");
+  assert.equal(records[1].districtId, null);
+  assert.equal(records[1].website, "");
+  assert.equal(parseSchool(records[1])?.ncesId, "062805013062");
+  assert.throws(() => parseSchoolResults({ error: { message: "Directory down" } }));
+});
+test("school directory separates campus websites from bounded reader adapters", () => {
+  assert.equal(new Set(SCHOOLS.map(s => s.id)).size, SCHOOLS.length);
+  assert.ok(SCHOOLS.every(s => s.website !== s.portal));
+  assert.equal(parseSchool({ id: "palo-alto-high", website: "https://evil.invalid", districtId: "fuhsd" })?.districtId, "pausd");
+  const custom = parseSchool({ id: "custom", name: "Other school", website: "https://school.edu", portal: "https://school.instructure.com", districtId: "pausd" });
+  assert.equal(custom?.districtId, null);
+  assert.equal(custom?.portal, "https://school.instructure.com/");
+  assert.notEqual(schoolStorageKey("student-a"), schoolStorageKey("student-b"));
+  for (const bad of ["javascript:alert(1)", "http://school.edu", "https://localhost", "https://127.0.0.1", "https://[::1]", "https://user:pass@school.edu", "https://school.edu:8080", "https://school.edu/?token=secret", "https://school.edu/#token", "https://school.local"]) assert.throws(() => publicSchoolUrl(bad));
+  assert.equal(parseSchool({ id: "custom", name: "Other", website: "https://school.edu?token=secret" }), null);
+});

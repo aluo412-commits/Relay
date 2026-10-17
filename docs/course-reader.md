@@ -1,4 +1,6 @@
-# Browser course reader — 0.4 account/district pilot
+# Browser course reader — 0.5 guided setup pilot
+
+Current setup, school database lookup, readiness checks and assignment visibility: [student-setup.md](student-setup.md). Collection, local import and AI consent remain separate.
 
 Account ownership, encryption, pairing, migration and PAUSD routing are documented in [student-accounts.md](student-accounts.md). Version 0.4 requires a signed-in Relay account and an explicit district choice; old unowned captures are not automatically migrated.
 
@@ -45,7 +47,7 @@ npx prisma generate
 
 Never reset existing tables. PostgreSQL atomically enforces one concurrent request and 12 requests per user/day across serverless instances. Failed/canceled attempts can count. Per-user quotas do not replace signup/abuse controls needed before broad release.
 
-Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains fourteen source/documentation files and no credentials.
+Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains fifteen source/documentation files and no credentials.
 
 ## Verification
 

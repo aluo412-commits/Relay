@@ -14,6 +14,20 @@ export async function GET() {
     return json({ ...profile, dataKey: account.scope ? localDataKey(account.scope) : null, googleEnabled: googleConfigured() });
   } catch { return json({ error: "Student account setup is unavailable. No private sources were loaded." }, 503); }
 }
+// Choosing an unsupported school must also stop the old supported reader.
+export async function DELETE(req: NextRequest) {
+  if (!sameOrigin(req)) return json({ error: "Invalid origin." }, 403);
+  try {
+    const account = await studentAccount();
+    if (!account) return json({ error: "Sign into Relay first." }, 401);
+    if (req.headers.get("X-Relay-Student-Binding") !== account.binding) return json({ error: "Account changed. Refresh before changing schools." }, 409);
+    if (account.district) {
+      const removed = await prisma.studentProfile.deleteMany({ where: { userId: account.user.id, revision: account.revision } });
+      if (!removed.count) return json({ error: "School settings changed. Refresh and try again." }, 409);
+    }
+    return json({ ok: true });
+  } catch { return json({ error: "Could not stop the previous school connection. Try again." }, 503); }
+}
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return json({ error: "Invalid origin." }, 403);
   try {

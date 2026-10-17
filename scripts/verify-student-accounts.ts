@@ -58,6 +58,24 @@ async function main() {
     assert.equal((await request("/api/student/profile", cookies[0], "", { districtId: "fuhsd", binding: moved.binding })).status, 200);
     const back = await (await request("/api/student/profile", cookies[0])).json();
     assert.equal(back.scope, a.scope); assert.equal(back.dataKey, a.dataKey); assert.notEqual(back.binding, a.binding);
+    const stop = (cookie: string, binding: string) => fetch(origin + "/api/student/profile", { method: "DELETE", headers: { Origin: origin, Cookie: cookie, "X-Relay-Student-Binding": binding } });
+    assert.equal((await stop(cookies[0], b.binding)).status, 409);
+    assert.equal((await stop(cookies[0], back.binding)).status, 200);
+    const unsupported = await (await request("/api/student/profile", cookies[0])).json();
+    assert.equal(unsupported.scope, null); assert.equal(unsupported.dataKey, null);
+    assert.equal((await request("/api/student/dashboard", cookies[0], back.binding)).status, 409);
+    assert.equal((await request("/api/student/profile", cookies[0], "", { districtId: "fuhsd", binding: unsupported.binding })).status, 200);
+    const restored = await (await request("/api/student/profile", cookies[0])).json();
+    assert.equal(restored.scope, a.scope); assert.equal(restored.dataKey, a.dataKey); assert.notEqual(restored.binding, back.binding);
+    assert.equal((await request("/api/student/schools?q=Palo+Alto")).status, 401);
+    assert.equal((await request("/api/student/schools?q=%25", cookies[0])).status, 400);
+    if (process.argv.includes("--directory")) {
+      const lookup = await request("/api/student/schools?q=Fremont+High&state=CA", cookies[0]);
+      assert.equal(lookup.status, 200); const directory = await lookup.json();
+      assert.ok(directory.schools.some((s: any) => s.id === "fremont-high"));
+      assert.ok(directory.schools.some((s: any) => s.id.startsWith("nces-") && s.districtId === null && s.website === ""));
+      console.log("PASS: real NCES public-directory lookup, supported campus mapping, and explicit unavailable reader/website fields for other schools.");
+    }
     const csrf = await fetch(origin + "/api/auth/logout", { method: "POST", headers: { Origin: "https://untrusted.example", Cookie: cookies[0] } });
     assert.equal(csrf.status, 403);
     if (process.argv.includes("--browser")) {

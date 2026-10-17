@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { encryptLocal, decryptLocal } from "../../../extensions/course-reader/vault.js";
 import { studentHeaders, type StudentSession } from "@/lib/student/accountTypes";
+import { useReaderConnection } from "./useReaderConnection";
 import { recordAnalyzed, useReaderAutomation } from "./useReaderAutomation";
 import { assertDistrictPages, validateSyncReport } from "@/lib/student/readerSync";
 import { EMPTY_READER, READER_LIBRARY_LIMIT, READER_CARD_LIMIT, isDateOnly, mergeReaderPages, quoteExists, validateCapture, type ReaderCapture, type ReaderCard, type ReaderState } from "@/lib/student/reader";
@@ -124,6 +125,7 @@ export function useCourseReader(account: StudentSession) {
     return restore(encrypted ? await decryptLocal(encrypted, account.dataKey, account.scope) : null);
   }
   const automation = useReaderAutomation({ account, current, ready, ai, analyzing, analyze, persist, readSaved, refreshAi, onError: setError });
-  return { account, state, ready, incoming, error, message, analyzing, ai, automation, acceptIncoming, dismissIncoming, removePage, clear, analyze, cancelAnalysis, updateCard, discardCard, refreshAi };
+  const connection = useReaderConnection(account, ready);
+  return { connection, account, state, ready, incoming, error, message, analyzing, ai, automation, acceptIncoming, dismissIncoming, removePage, clear, analyze, cancelAnalysis, updateCard, discardCard, refreshAi };
 }
 export type CourseReaderController = ReturnType<typeof useCourseReader>;

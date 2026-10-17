@@ -90,11 +90,20 @@ try {
   dashboard.on("pageerror", e => console.error("Dashboard error:", e.message));
   dashboard.on("requestfailed", r => console.error("Request failed:", new URL(r.url()).pathname, r.failure()?.errorText));
   await dashboard.goto("https://relay.aaronluo.com/?reader=import");
-  await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).check();
+  await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).waitFor();
   const popup = await context.newPage(); await popup.goto(`chrome-extension://${loaded.id}/popup.html`);
   popup.on('dialog', d => void d.accept());
   await popup.locator('#pair-account').click();
   await popup.getByText(/Paired$/, { exact: false }).waitFor();
+  const premature = await popup.evaluate(binding => chrome.runtime.sendMessage({ type: 'sync-enable', binding, google: false }), accountA.binding);
+  assert.equal(premature.ok, false); assert.match(premature.error, /Automatically import daily snapshots/); assert.equal(schoolRequests.length, 0);
+  assert.equal(await popup.locator('#enable-sync').isDisabled(), true);
+  const bridgeMutation = await worker.evaluate(async binding => { const tab = (await chrome.tabs.query({ url: 'https://relay.aaronluo.com/*' }))[0]; const r = await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [binding], func: async binding => chrome.runtime.sendMessage({ type: 'sync-enable', binding }) }); return r[0].result; }, accountA.binding);
+  assert.equal(bridgeMutation.ok, false); assert.match(bridgeMutation.error, /only reports reader status/);
+  assert.equal(await popup.locator('#school-portal').getAttribute('href'), SCHOOL);
+  await dashboard.getByRole('checkbox', { name: 'Automatically import daily snapshots', exact: false }).check();
+  try { await until(async () => (await dashboard.locator('.sg-proof').allTextContents()).some(x => x.includes('paired')), 20000); }
+  catch (error) { console.error('Bridge fixture status:', await dashboard.locator('.sg-guide').innerText()); console.error(await worker.evaluate(async () => { const tab = (await chrome.tabs.query({ url: 'https://relay.aaronluo.com/*' }))[0]; return chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ bridge: globalThis.__relayStatusBridge, ready: document.documentElement.dataset.relayDailyReaderReady }) }); })); throw error; }
   await popup.locator("#daily-consent").check(); await popup.locator("#google-consent").check(); await popup.locator("#enable-sync").click();
   let run = await until(async () => { const r = await getRun(); return r?.finishedAt ? r : null; });
   if (!run.courses.length) console.error("Fixture sweep:", JSON.stringify(run), schoolRequests, context.pages().map(p=>p.url().split("?")[0]), await worker.evaluate(async () => ({permissions: await chrome.permissions.getAll(), tabs: (await chrome.tabs.query({})).map(t => ({id: t.id, url: (t.url || "").split("?")[0], status: t.status, pending: !!t.pendingUrl}))})));
@@ -110,9 +119,17 @@ try {
   await dashboard.bringToFront();
   await until(async () => await dashboard.locator(".rr-page").count() >= 9);
   assert.equal(aiCalls, 0, "Reading/importing must not silently authorize AI");
+  await dashboard.getByRole('heading', { name: 'Text arrived. Assignment analysis is off.', exact: true }).waitFor();
+  if (process.env.READER_SCREENSHOTS) {
+    await dashboard.setViewportSize({ width: 1440, height: 1000 }); await dashboard.evaluate(() => scrollTo(0, 0));
+    await dashboard.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'reader-text-received-ai-off.png') });
+  }
   await dashboard.getByRole("checkbox", { name: "Automatically analyze new or changed excerpts", exact: false }).check();
   await until(() => aiCalls > 0);
   await dashboard.locator(".rr-draft").first().waitFor();
+  await dashboard.getByRole('navigation').getByRole('button', { name: 'Assignments', exact: true }).click();
+  await dashboard.locator('#assignment-drafts .rr-draft').first().waitFor();
+  assert.ok((await dashboard.locator('#assignment-drafts').innerText()).includes('Unreviewed'));
   await dashboard.getByRole("navigation").getByRole("button", { name: "Overview", exact: true }).click();
   await dashboard.getByRole("heading", { name: "What your courses need.", exact: true }).waitFor();
   await dashboard.getByText("Turnitin · Status unknown", { exact: true }).first().waitFor();
@@ -124,7 +141,7 @@ try {
     assert.equal(await dashboard.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await dashboard.setViewportSize({ width: 1280, height: 900 });
   }
-  await dashboard.getByRole("navigation").getByRole("button", { name: "Connections", exact: true }).click();
+  await dashboard.getByRole("navigation").getByRole("button", { name: "Setup & connections", exact: true }).click();
   // Disable recurring AI after checking consent. The rest of this test exercises
   // changes and login failures without additional model-fixture requests.
   await dashboard.getByRole("checkbox", { name: "Automatically analyze new or changed excerpts", exact: false }).uncheck();
@@ -176,5 +193,5 @@ try {
   await context.clearCookies(); await dashboard.reload(); await dashboard.getByRole('heading', { name: 'Your schoolwork stays yours.' }).waitFor();
   assert.equal(await dashboard.locator('.rr-page').count(), 0);
   if (process.env.READER_SCREENSHOTS) await dashboard.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'student-account-entry.png'), fullPage: true });
-  console.log(JSON.stringify({ district: district.id, encryptedExtensionCache: true, differentAccountCannotSeeSources: true, lateAccountCaptureRejected: true, lateAccountProfileRejected: true, accountPreferencesIsolated: true, ownLibraryRestored: true, logoutHidesReader: true, actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, accountEndpointMocked: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, referenceDescriptionsOnly: true, automaticBriefWithoutDocSelection: true, turnitinStatusNotInferredFromSchoology: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, changedSchoolIdentityPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
+  console.log(JSON.stringify({ district: district.id, encryptedExtensionCache: true, differentAccountCannotSeeSources: true, lateAccountCaptureRejected: true, lateAccountProfileRejected: true, accountPreferencesIsolated: true, ownLibraryRestored: true, logoutHidesReader: true, websiteRequiredBeforeEnable: true, liveStatusBridge: true, assignmentDraftsVisible: true, actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, accountEndpointMocked: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, referenceDescriptionsOnly: true, automaticBriefWithoutDocSelection: true, turnitinStatusNotInferredFromSchoology: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, changedSchoolIdentityPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
 } finally { await context?.close(); rmSync(dir, { recursive: true, force: true }); }

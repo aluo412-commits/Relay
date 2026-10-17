@@ -4,9 +4,10 @@ let flight = null, writes = Promise.resolve();
 export async function currentAccount() {
   if (!flight) flight = (async () => {
     const r = await fetch("https://relay.aaronluo.com/api/student/profile", { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(10000) });
-    if (!r.ok) throw new Error("Open Relay and sign into your account before pairing.");
+    if (!r.ok) throw new Error("Relay could not verify your account. Open guided setup and retry; no new course data is read.");
     const p = await r.json();
-    if (!r.ok || !p.user || !p.scope || !p.binding || !p.dataKey || !districtById(p.district?.id) || districtById(p.district.id).schoology !== p.district.schoology) throw new Error("Sign into Relay and choose a district, then pair this extension.");
+    if (!p.user) throw new Error("Open Relay and sign into your account before pairing.");
+    if (!p.scope || !p.binding || !p.dataKey || !districtById(p.district?.id) || districtById(p.district.id).schoology !== p.district.schoology) throw new Error("No supported course reader is selected. Open Relay school setup; saving unlisted school links does not enable reading.");
     return p;
   })().finally(() => { flight = null; });
   return flight;

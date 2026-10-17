@@ -1,4 +1,6 @@
-# Student accounts and districts — reader 0.4
+# Student accounts and districts — ownership introduced in reader 0.4
+
+Current release: [reader 0.5 guided setup and school-directory search](student-setup.md). The ownership boundaries below still apply.
 
 ## Onboarding
 
@@ -51,7 +53,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-No destructive schema push or reset is needed. The extension download is version 0.4.0. Replace the original unpacked-extension files and Reload; do not install a second copy. Sign into Relay, choose a district, sign into its Schoology, then **Pair current Relay account** and enable reading. AI remains separate consent.
+No destructive schema push or reset is needed. The current extension download is version 0.5.0. Replace the original unpacked-extension files and Reload; do not install a second copy. Sign into Relay, choose a district, sign into its Schoology, enable local imports in website setup, then **Pair current Relay account** and enable reading. AI remains separate consent.
 
 Validation:
 - Unit tests cover PAUSD routing, cross-district rejection, per-account/district encryption, wrong-key/scope/plaintext rejection and session binding changes.

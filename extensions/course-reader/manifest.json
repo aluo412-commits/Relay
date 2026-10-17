@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Relay Course Reader — Pilot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Automatic selective course reading: important instructions, reference descriptions, source evidence. No assignment answers or submissions.",
   "permissions": ["activeTab", "scripting", "storage", "alarms"],
   "host_permissions": ["https://relay.aaronluo.com/*"],
   "optional_host_permissions": ["https://fuhsd.schoology.com/*", "https://pausd.schoology.com/*", "https://docs.google.com/*"],
+  "content_scripts": [{ "matches": ["https://relay.aaronluo.com/*"], "js": ["website-bridge.js"], "run_at": "document_idle" }],
   "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_title": "Read this course page", "default_popup": "popup.html" },
+  "action": { "default_title": "Set up your course reader", "default_popup": "popup.html" },
   "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'" },
   "minimum_chrome_version": "120"
 }

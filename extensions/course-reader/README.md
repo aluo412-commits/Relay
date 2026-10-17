@@ -1,4 +1,4 @@
-# Relay Course Reader — 0.4 account/district pilot
+# Relay Course Reader — 0.5 guided setup pilot
 
 ## Install or update
 
@@ -10,13 +10,15 @@ This is an inspectable unpacked prototype, not a Chrome Web Store release. Follo
 
 ## One-time setup
 
-1. Sign into https://relay.aaronluo.com and choose **FUHSD** or **Palo Alto Unified (PAUSD)**. This is your Relay account, not a school-password form.
+1. Sign into https://relay.aaronluo.com and choose your **school**. Quick picks have supported FUHSD/PAUSD portals; NCES US public-school search and custom school links are also available, but other portals are explicitly unsupported. This is your Relay account, not a school-password form. In **Setup & connections**, first enable **Automatically import daily snapshots** and keep Relay open.
 2. Sign into your selected school's official site yourself:
    - FUHSD: https://fuhsd.schoology.com
    - PAUSD: https://pausd.schoology.com (ClassLink login)
 3. Open the extension and click **Pair current Relay account**. Confirm the displayed account/district and that the school login belongs to you. Pairing replaces the extension cache, not saved account libraries on the website.
 4. Review the daily-reading permission and click **Enable daily reading**. Chrome asks only for the selected school's host. Linked Google Docs/Slides need separate optional access.
-5. In Relay **Connections**, turn on **Automatically import daily snapshots**. Optionally grant separate **automatic AI** permission. No document-by-document selection is needed. Use **Sync now** for the first sweep.
+5. Use **Sync now** for the first sweep. Back in Relay, optionally grant separate **automatic AI** permission. Reading only saves text; it does not analyze assignments. With AI permitted, keep the dashboard visible and online; new drafts appear directly in **Assignments**. No document-by-document selection is needed. The colored setup card explains the next required action.
+
+Reload Relay after installing/updating so it can detect the extension. The initial Enable daily reading operation is blocked until the website is ready for local import in the paired account. A website-only status bridge reports pairing and progress; it cannot start reads or grant permissions.
 
 After 8 AM Pacific, or next time Chrome runs, the extension checks courses. Chrome and the Relay/school sessions must remain valid; Relay's webpage need not stay open for collection. Open it to receive snapshots. AI runs only while the dashboard is visible and online. Signing out, signing in again or changing accounts/districts invalidates pairing. A school-login fingerprint change pauses reading when the layout exposes that identity. If it cannot be verified, a warning is shown: use a personal browser profile and confirm the school login before pairing.
 
@@ -47,5 +49,7 @@ Required: `activeTab`, `scripting`, `storage`, `alarms`, and Relay host access f
 Collection uses extension-owned inactive tabs and leaves activated/adopted tabs open. Manual reading remains an optional advanced tool, bound to the paired account/district.
 
 AI is separate consent: selected important text, titles and source URLs go to Relay's server and the named provider; provider retention terms apply. Up to five excerpts per automatic request and eight automatic attempts/day inside the shared server-enforced 12-request user quota. Queues can span days. Successful unchanged versions are not repeatedly analyzed. Consent is bound to the account/session/district and provider/model.
+
+Step-by-step setup and directory limitations: https://github.com/aluo412-commits/Relay/blob/main/docs/student-setup.md
 
 Source and security details: https://github.com/aluo412-commits/Relay/blob/main/docs/student-accounts.md

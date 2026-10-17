@@ -16,11 +16,23 @@ function publicReport(run) {
   const { id, status, startedAt, finishedAt, courses, read, changed, unread, unreadCount, limited, message } = run;
   return { id, status, startedAt, finishedAt, courses, read, changed, unread, unreadCount, limited, message, checked: run.visited.length, queued: run.queue.length };
 }
+export async function websiteReady(account) {
+  const tabs = await chrome.tabs.query({ url: "https://relay.aaronluo.com/*" });
+  for (const tab of tabs) try {
+    if (new URL(tab.url).pathname !== "/") continue;
+    const result = await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [account.binding], func: binding => {
+      const a = JSON.parse(document.documentElement.dataset.relayReaderAccount || "null");
+      return location.origin === "https://relay.aaronluo.com" && a?.binding === binding && document.documentElement.dataset.relayDailyReaderReady === "1";
+    } });
+    if (result[0]?.result === true) return true;
+  } catch { /* A closed tab is not ready. */ }
+  return false;
+}
 export async function syncStatus() {
   let account;
   try { const a = await currentAccount(); account = { email: a.user.email, districtId: a.district.id, schoology: a.district.schoology, binding: a.binding, scope: a.scope }; }
   catch (e) { return { settings: DEFAULT, report: null, paired: false, account: null, message: e.message }; }
-  try { const s = await state(); if (s.binding !== account.binding) throw new Error("Account changed; reopen the extension."); return { settings: s.settings, report: publicReport(s.run), paired: true, account }; }
+  try { const s = await state(); if (s.binding !== account.binding) throw new Error("Account changed; reopen the extension."); return { settings: s.settings, report: publicReport(s.run), paired: true, account, websiteReady: await websiteReady(account) }; }
   catch (e) { return { settings: DEFAULT, report: null, paired: false, account, message: e.message }; }
 }
 async function closeOwned(run) {
@@ -33,6 +45,7 @@ async function closeOwned(run) {
 }
 export async function configureSync(enabled, google = false) {
   const account = await pairedAccount(), SCHOOL = account.district.schoology;
+  if (enabled && !await websiteReady(account)) throw new Error("Open Relay setup in this account and turn on Automatically import daily snapshots before enabling reading. AI permission is a separate choice.");
   if (enabled && !await chrome.permissions.contains({ origins: [SCHOOL + "/*"] })) throw new Error("Grant Schoology access first.");
   if (enabled && google && !await chrome.permissions.contains({ origins: ["https://docs.google.com/*"] })) throw new Error("Grant Google Docs access or leave linked documents off.");
   const old = await state();

@@ -1,6 +1,6 @@
 # Relay
 
-A student dashboard for assignments, school updates, calendar events, and school email. The account-based pilot supports FUHSD and Palo Alto Unified (PAUSD) Schoology.
+A student dashboard for assignments, school updates, calendar events, and school email. The account-based pilot supports FUHSD and Palo Alto Unified (PAUSD) Schoology. [Guided setup](docs/student-setup.md) adds specific school links, a real NCES US public-school directory search, explicit unsupported-portal states, extension readiness checks and visible assignment drafts. Directory coverage is not the same as reader support.
 
 - Production: https://relay.aaronluo.com
 - New dashboard: `/`

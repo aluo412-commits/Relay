@@ -3,9 +3,20 @@ import { installScheduler, configureSync, forgetSync, syncNow, syncStatus } from
 import { pairedAccount, pairCurrentAccount, ownedGet, ownedSet, ownedRemove } from "./owned-storage.js";
 installScheduler();
 const PRODUCTION = "https://relay.aaronluo.com";
+chrome.runtime.onInstalled.addListener(async () => {
+  for (const tab of await chrome.tabs.query({ url: PRODUCTION + "/*" })) {
+    try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["website-bridge.js"] }); } catch { /* Reload the website to detect this update. */ }
+  }
+});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return;
   (async () => {
+    if (sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(""))) {
+      if (message.type !== "website-status" || sender.frameId !== 0 || !sender.url?.startsWith(PRODUCTION + "/")) throw new Error("This bridge only reports reader status.");
+      const s = await syncStatus();
+      if (!s.account || s.account.binding !== message.binding) throw new Error("Sign in and choose your school, then pair this account.");
+      return { version: chrome.runtime.getManifest().version, paired: s.paired, enabled: s.settings.enabled, websiteReady: s.websiteReady === true, status: s.report?.status || null, read: s.report?.read || 0, message: s.report?.message || s.message || "No course check yet." };
+    }
     if (message.type === "sync-status") return syncStatus();
     if (message.type === "sync-pair") { await pairCurrentAccount(message.binding); return syncStatus(); }
     const account = await pairedAccount();

@@ -64,6 +64,8 @@ test("extension has no cookie/history/webRequest/all-site or unconditionally gra
   assert.ok(manifest.optional_host_permissions.includes("https://fuhsd.schoology.com/*"));
   assert.ok(manifest.optional_host_permissions.includes("https://docs.google.com/*"));
   assert.deepEqual(manifest.host_permissions, ["https://relay.aaronluo.com/*"]);
-  assert.equal(manifest.content_scripts, undefined);
+  assert.deepEqual(manifest.content_scripts, [{ matches: ["https://relay.aaronluo.com/*"], js: ["website-bridge.js"], run_at: "document_idle" }]);
+  assert.equal(manifest.externally_connectable, undefined);
+  assert.equal(manifest.web_accessible_resources, undefined);
   assert.ok(manifest.content_security_policy.extension_pages.includes("script-src 'self'"));
 });
