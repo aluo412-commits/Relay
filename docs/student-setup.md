@@ -2,6 +2,8 @@
 
 ## Student journey
 
+The website now renders **one wizard step at a time**, not a five-section instruction page. Continue/Back control progression; only the current step exists in the rendered wizard. Extension installation is further split into download, Chrome settings, and folder-loading screens. Actual extension detection/pairing gates progress; clicking through instructions does not establish installation. The current step survives reload within the same account/session, and Back does not reset permissions. AI can be explicitly skipped with Keep text local. Coverage, optional connectors and privacy explanations are collapsed outside the wizard.
+
 1. Sign into Relay. Choose a specific school, not only a district. Seven quick picks have curated school websites and the supported FUHSD/PAUSD Schoology portal.
 2. **Setup & connections → Automatically import daily snapshots.** This explicitly enables account-local import, not AI. The extension's initial Enable daily reading operation now checks that a paired, open Relay tab is ready to receive results. A direct runtime request cannot bypass this check.
 3. Download/unzip reader 0.5; open `chrome://extensions`; Developer mode → Load unpacked → extracted `relay-course-reader` folder. Existing users replace the original files and Reload, rather than installing a duplicate. Reload Relay after installing/updating. Open the puzzle-piece menu, pin the reader, and pair the displayed Relay account.
@@ -9,7 +11,7 @@
 5. Separately enable **Automatically analyze new or changed excerpts** if permitted by the course's AI rules. The provider/model, recurring upload scope, limits and retention caveat are visible. Keep Relay visible/online. No routine document selection is needed. Unchecked means no automatic AI assignments, not a broken sync.
 6. See unreviewed assignment/event drafts directly in **Assignments** and the Overview brief. Drafts remain separate from the accepted board and do not imply submission or verified deadlines. Policy and feedback cards remain information rather than homework tasks.
 
-The high-contrast next-action card distinguishes website not ready, extension not detected, pairing needed, school login required, reading in progress, text received with AI off, provider unavailable, analysis running, quota/deferred work, unread-only sources, and available drafts. Zero results never means zero homework. Calendar/Gmail/district connectors are optional extras rather than competing setup buttons.
+The compact dashboard status and current wizard step distinguish website not ready, extension not detected, pairing needed, school login required, reading in progress, text received with AI off, provider unavailable, analysis running, quota/deferred work, unread-only sources, and available drafts. Zero results never means zero homework. Calendar/Gmail/district connectors are optional extras rather than competing setup buttons.
 
 ## School directory versus reader support
 

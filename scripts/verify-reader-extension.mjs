@@ -102,8 +102,11 @@ try {
   assert.equal(bridgeMutation.ok, false); assert.match(bridgeMutation.error, /only reports reader status/);
   assert.equal(await popup.locator('#school-portal').getAttribute('href'), SCHOOL);
   await dashboard.getByRole('checkbox', { name: 'Automatically import daily snapshots', exact: false }).check();
+  await dashboard.locator('.sg-wizard-actions').getByRole('button', { name: 'Continue', exact: true }).click();
+  assert.equal(await dashboard.locator('[data-setup-step]').count(), 1);
   try { await until(async () => (await dashboard.locator('.sg-proof').allTextContents()).some(x => x.includes('paired')), 20000); }
   catch (error) { console.error('Bridge fixture status:', await dashboard.locator('.sg-guide').innerText()); console.error(await worker.evaluate(async () => { const tab = (await chrome.tabs.query({ url: 'https://relay.aaronluo.com/*' }))[0]; return chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ bridge: globalThis.__relayStatusBridge, ready: document.documentElement.dataset.relayDailyReaderReady }) }); })); throw error; }
+  await dashboard.locator('.sg-wizard-actions').getByRole('button', { name: 'Continue', exact: true }).click();
   await popup.locator("#daily-consent").check(); await popup.locator("#google-consent").check(); await popup.locator("#enable-sync").click();
   let run = await until(async () => { const r = await getRun(); return r?.finishedAt ? r : null; });
   if (!run.courses.length) console.error("Fixture sweep:", JSON.stringify(run), schoolRequests, context.pages().map(p=>p.url().split("?")[0]), await worker.evaluate(async () => ({permissions: await chrome.permissions.getAll(), tabs: (await chrome.tabs.query({})).map(t => ({id: t.id, url: (t.url || "").split("?")[0], status: t.status, pending: !!t.pendingUrl}))})));
@@ -119,14 +122,20 @@ try {
   await dashboard.bringToFront();
   await until(async () => await dashboard.locator(".rr-page").count() >= 9);
   assert.equal(aiCalls, 0, "Reading/importing must not silently authorize AI");
-  await dashboard.getByRole('heading', { name: 'Text arrived. Assignment analysis is off.', exact: true }).waitFor();
+  assert.equal(await dashboard.getByRole('checkbox', { name: 'Automatically analyze new or changed excerpts', exact: false }).count(), 0);
+  await dashboard.locator('.sg-wizard-actions').getByRole('button', { name: 'Continue', exact: true }).click();
+  await dashboard.getByRole('heading', { name: 'May Relay analyze your course text?', exact: true }).waitFor();
   if (process.env.READER_SCREENSHOTS) {
     await dashboard.setViewportSize({ width: 1440, height: 1000 }); await dashboard.evaluate(() => scrollTo(0, 0));
     await dashboard.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'reader-text-received-ai-off.png') });
   }
+  await dashboard.getByRole('button', { name: 'Keep text local', exact: true }).click();
+  await dashboard.getByRole('heading', { name: 'Automatic analysis is off.', exact: true }).waitFor();
+  assert.equal(aiCalls, 0, 'Skipping AI must not upload text');
+  await dashboard.locator('.sg-wizard-actions').getByRole('button', { name: 'Back', exact: true }).click();
   await dashboard.getByRole("checkbox", { name: "Automatically analyze new or changed excerpts", exact: false }).check();
   await until(() => aiCalls > 0);
-  await dashboard.locator(".rr-draft").first().waitFor();
+  await until(async () => await dashboard.locator('.rr-draft').count() > 0);
   await dashboard.getByRole('navigation').getByRole('button', { name: 'Assignments', exact: true }).click();
   await dashboard.locator('#assignment-drafts .rr-draft').first().waitFor();
   assert.ok((await dashboard.locator('#assignment-drafts').innerText()).includes('Unreviewed'));
@@ -145,6 +154,7 @@ try {
   // Disable recurring AI after checking consent. The rest of this test exercises
   // changes and login failures without additional model-fixture requests.
   await dashboard.getByRole("checkbox", { name: "Automatically analyze new or changed excerpts", exact: false }).uncheck();
+  await dashboard.locator('#reader-advanced > summary').click();
   const targetDraft = dashboard.locator(".rr-draft").filter({ has: dashboard.locator(`a[href="${SCHOOL}/assignment/101"]`) });
   await targetDraft.locator(".rr-check input").check();
   await targetDraft.getByRole("button", { name: "Add to my board", exact: true }).click();
@@ -169,7 +179,9 @@ try {
   await popup.locator("#sync-now").click();
   run = await until(async () => { const r = await getRun(); return r?.id !== switched.id && r?.status === "login-required" ? r : null; });
   assert.equal(run.status, "login-required");
-  await dashboard.reload(); await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).waitFor();
+  await dashboard.reload(); await dashboard.locator('[data-setup-step="4"]').waitFor();
+  for (let i = 0; i < 3; i++) await dashboard.locator('.sg-wizard-actions').getByRole('button', { name: 'Back', exact: true }).click();
+  await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).waitFor();
   assert.equal(await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).isChecked(), true);
   holdProfile = true; await dashboard.evaluate(() => window.dispatchEvent(new Event('focus')));
   await until(() => heldProfile);
@@ -193,5 +205,5 @@ try {
   await context.clearCookies(); await dashboard.reload(); await dashboard.getByRole('heading', { name: 'Your schoolwork stays yours.' }).waitFor();
   assert.equal(await dashboard.locator('.rr-page').count(), 0);
   if (process.env.READER_SCREENSHOTS) await dashboard.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'student-account-entry.png'), fullPage: true });
-  console.log(JSON.stringify({ district: district.id, encryptedExtensionCache: true, differentAccountCannotSeeSources: true, lateAccountCaptureRejected: true, lateAccountProfileRejected: true, accountPreferencesIsolated: true, ownLibraryRestored: true, logoutHidesReader: true, websiteRequiredBeforeEnable: true, liveStatusBridge: true, assignmentDraftsVisible: true, actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, accountEndpointMocked: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, referenceDescriptionsOnly: true, automaticBriefWithoutDocSelection: true, turnitinStatusNotInferredFromSchoology: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, changedSchoolIdentityPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
+  console.log(JSON.stringify({ district: district.id, encryptedExtensionCache: true, differentAccountCannotSeeSources: true, lateAccountCaptureRejected: true, lateAccountProfileRejected: true, accountPreferencesIsolated: true, ownLibraryRestored: true, logoutHidesReader: true, oneSetupStepAtATime: true, websiteRequiredBeforeEnable: true, liveStatusBridge: true, assignmentDraftsVisible: true, actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, accountEndpointMocked: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, referenceDescriptionsOnly: true, automaticBriefWithoutDocSelection: true, turnitinStatusNotInferredFromSchoology: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, changedSchoolIdentityPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
 } finally { await context?.close(); rmSync(dir, { recursive: true, force: true }); }

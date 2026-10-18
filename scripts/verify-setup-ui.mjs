@@ -28,11 +28,13 @@ try {
   await page.getByLabel('Find your school').fill('Palo Alto');
   await page.getByRole('button', { name: /Palo Alto High School.*Choose/ }).click();
   await page.getByRole('navigation').getByRole('button', { name: 'Setup & connections', exact: true }).click();
+  assert.equal(await page.locator('[data-setup-step]').count(), 1);
+  await page.locator('.sg-help > summary').click();
   assert.equal(await page.getByRole('link', { name: /Palo Alto High School/ }).getAttribute('href'), 'https://www.paly.net');
   assert.equal(await page.getByRole('link', { name: 'Open PAUSD Schoology', exact: false }).getAttribute('href'), 'https://pausd.schoology.com');
-  await page.getByRole('button', { name: 'Prepare this website', exact: false }).click();
-  assert.equal(await page.evaluate(() => document.activeElement.id), 'sg-step-1');
-  assert.equal(await page.getByRole('checkbox', { name: 'Automatically analyze new or changed excerpts', exact: false }).isDisabled(), true);
+  await page.locator('.sg-help > summary').click();
+  assert.equal(await page.getByRole('checkbox', { name: 'Automatically analyze new or changed excerpts', exact: false }).count(), 0);
+  assert.equal(await page.locator('.sg-wizard-actions').getByRole('button', { name: 'Continue', exact: true }).isDisabled(), true);
   if (process.env.READER_SCREENSHOTS) {
     await page.evaluate(() => scrollTo(0, 0));
     await page.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'guided-setup-desktop.png'), fullPage: true });
@@ -41,8 +43,22 @@ try {
     await page.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'guided-setup-mobile.png'), fullPage: true });
   }
   await page.getByRole('checkbox', { name: 'Automatically import daily snapshots', exact: false }).check();
-  await page.getByRole('checkbox', { name: 'Automatically analyze new or changed excerpts', exact: false }).check();
-  assert.equal(aiCalls, 0, 'No text means no AI request, even with consent');
+  await page.locator('.sg-wizard-actions').getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('heading', { name: 'Get the Chrome extension.', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'sg-setup-title');
+  assert.equal(await page.locator('[data-setup-step]').count(), 1);
+  assert.equal(await page.getByRole('checkbox').count(), 0);
+  const download = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download extension', exact: false }).click(); await download;
+  await page.getByRole('heading', { name: 'Open Chrome’s extension page.', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Chrome page is open', exact: false }).click();
+  await page.getByRole('heading', { name: 'Load the extension folder.', exact: true }).waitFor();
+  assert.equal(await page.locator('[data-setup-step]').count(), 1);
+  assert.equal(await page.locator('.sg-wizard-actions').getByRole('button', { name: 'Continue', exact: true }).count(), 0, 'Cannot claim installation without detection/pairing');
+  await page.reload(); await page.locator('[data-setup-step="2"]').waitFor();
+  await page.locator('.sg-wizard-actions').getByRole('button', { name: 'Back', exact: true }).click();
+  assert.equal(await page.getByRole('checkbox', { name: 'Automatically import daily snapshots', exact: false }).isChecked(), true);
+  assert.equal(aiCalls, 0, 'Tutorial navigation never grants AI consent');
   await page.locator('.sa-account-strip').getByRole('button', { name: 'Change school' }).click();
   await page.getByLabel('Find your school').fill('Fremont');
   await page.getByRole('button', { name: 'Search NCES for this name or city' }).click();
@@ -61,5 +77,5 @@ try {
   assert.equal(aiCalls, 0); assert.equal(errors.length, 0, errors.join('\n'));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   if (process.env.READER_SCREENSHOTS) await page.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'school-directory-mobile.png'), fullPage: true });
-  console.log('PASS: school selection and exact links, actionable setup, separate AI consent, visible install instructions, unsupported directory/custom portals stop old routing, and mobile layout. Synthetic fixtures only.');
+  console.log('PASS: exactly one setup step at a time, gated progression, staged installation, keyboard focus, reload/back navigation without lost consent, school selection/links, unsupported portal reset, and mobile layout. Synthetic fixtures only.');
 } finally { await browser.close(); }
