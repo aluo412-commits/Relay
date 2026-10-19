@@ -1,4 +1,8 @@
-# Relay Course Reader — 0.5 guided setup pilot
+# Relay Course Reader — 0.6 homework coverage / reliability pilot
+
+Current changes and limits: https://github.com/aluo412-commits/Relay/blob/main/docs/reader-reliability.md
+
+For PDF homework lists: update this extension, Reload, then Pause daily reading, enable **Read important linked PDF homework lists/calendars**, and enable reading again. Use Sync now. This is optional local text parsing, not OCR; AI still requires its separate website permission.
 
 ## Install or update
 
@@ -28,11 +32,15 @@ The extension discovers enrolled courses and follows allow-listed material folde
 
 Local title/description signals prioritize instructions, syllabi, calendars, rubrics, labs and feedback. The LLM organizes readable important excerpts into an automatic dashboard brief. Ordinary/ambiguous linked resources remain descriptions from their linking pages, without fetching document bodies just to classify them. Priority routing is a heuristic and can miss important material; uncertainty stays visible. Old/manual captures can remain locally but are filtered before automatic AI.
 
-- Up to 40 courses / 240 URLs per sweep, fair shares per course; 300 retained excerpts, 6,000 characters each. Limits are reported.
-- PDF interiors, images, unsupported links, LTI/external tools and dynamic-only content remain unread. A file wrapper is not its contents.
+- Up to 40 courses / 240 URLs per sweep, fair shares per course; 300 retained excerpts, 6,000 characters each. Long text can be split into up to eight excerpts. Limits are reported.
+- Optional PDF text: selected-school / approved Schoology CDN links only, up to two files/source page, 2 MB/file and first 20 pages. Parsed locally with bundled PDF.js; no scripts, forms, OCR or password bypass. Scans, inaccessible links, images and external tools remain unread. A wrapper is still not its file's contents.
 - No login/MFA/export-policy bypass. Real school layouts still need validation on the permitted student's account.
 - Requirements, planning and source-grounded learning notes only: no coursework answers, solutions or generated submission text. AI drafts are not verified tasks and never submit work.
 - Only explicit personal status labels in individual assignment snapshots become observations. Turnitin and Schoology are separate; a Turnitin link alone means unknown. A direct live Turnitin connector is not implemented.
+
+## Dates and task controls
+
+Source-relative dates never become today/tomorrow based on read time. Old/closed and undated instructions have separate views. Hide is reversible: use Undo or Hidden → Restore. Checkmarks stay visible and mean done in Relay only; source changes keep them with a review warning. Finished setup does not repeat automatically. Refresh all Relay tabs to use the new encrypted workspace format; owned older data is copied, not deleted.
 
 ## Account privacy
 
@@ -44,7 +52,7 @@ Pause collection in the extension. Turn off imports/automatic AI separately on t
 
 ## Permissions / AI
 
-Required: `activeTab`, `scripting`, `storage`, `alarms`, and Relay host access for authenticated account checks and local handoff. Optional: only FUHSD Schoology, PAUSD Schoology, and Google Docs. No cookies API, history, webRequest, all-sites access or remote executable code. Browser credentials accompany normal allowed requests; passwords/session cookies are never exported.
+Required: `activeTab`, `scripting`, `storage`, `alarms`, `offscreen` (local PDF parsing), and Relay host access for authenticated account checks and local handoff. Optional: only FUHSD Schoology, PAUSD Schoology, and Google Docs. No cookies API, history, webRequest, all-sites access or remote executable code. Browser credentials accompany normal allowed requests; passwords/session cookies are never exported.
 
 Collection uses extension-owned inactive tabs and leaves activated/adopted tabs open. Manual reading remains an optional advanced tool, bound to the paired account/district.
 

@@ -9,19 +9,19 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (sender.id !== chrome.runtime.id) return;
+  if (sender.id !== chrome.runtime.id || message?.type === "relay.pdf.parse") return;
   (async () => {
     if (sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(""))) {
       if (message.type !== "website-status" || sender.frameId !== 0 || !sender.url?.startsWith(PRODUCTION + "/")) throw new Error("This bridge only reports reader status.");
       const s = await syncStatus();
       if (!s.account || s.account.binding !== message.binding) throw new Error("Sign in and choose your school, then pair this account.");
-      return { version: chrome.runtime.getManifest().version, paired: s.paired, enabled: s.settings.enabled, websiteReady: s.websiteReady === true, status: s.report?.status || null, read: s.report?.read || 0, message: s.report?.message || s.message || "No course check yet." };
+      return { version: chrome.runtime.getManifest().version, paired: s.paired, enabled: s.settings.enabled, pdf: s.settings.pdf === true, websiteReady: s.websiteReady === true, status: s.report?.status || null, read: s.report?.read || 0, message: s.report?.message || s.message || "No course check yet." };
     }
     if (message.type === "sync-status") return syncStatus();
     if (message.type === "sync-pair") { await pairCurrentAccount(message.binding); return syncStatus(); }
     const account = await pairedAccount();
     if (message.binding !== account.binding) throw new Error("Account changed. Reopen the extension before continuing.");
-    if (message.type === "sync-enable") return configureSync(true, message.google === true);
+    if (message.type === "sync-enable") return configureSync(true, message.google === true, message.pdf === true);
     if (message.type === "sync-pause") return configureSync(false);
     if (message.type === "sync-forget") return forgetSync();
     if (message.type === "sync-now") return syncNow();

@@ -1,3 +1,4 @@
+import { parseLocalPdf } from "./pdf-reader.js";
 import { ownedGet, ownedSet, ownedRemove, pairedAccount, currentAccount } from "./owned-storage.js";
 import { schoolUrl, googleUrl, isDue, addJobs, putSnapshot } from "./sync-core.js";
 import { readSyncPage } from "./sync-read.js";
@@ -7,7 +8,7 @@ async function describeSource(url, link, parent, courseId) {
   return { id: "page-" + Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join("").slice(0, 24), url, title: link.title || "Course resource", text: `Source title: ${link.title || "Course resource"}\nDescription from linking page: ${link.description || "No description available."}\nDocument contents have not been read.`, description: (link.description || "").slice(0, 500), descriptionSource: parent, readDepth: "description", capturedAt: new Date().toISOString(), warnings: ["Description only, copied from the linking page. Not document contents; not sent for task extraction."], links: [], courseId };
 }
 const ALARM = "relay-daily-reader";
-const DEFAULT = { enabled: false, google: false };
+const DEFAULT = { enabled: false, google: false, pdf: false };
 let working = false;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function state() { const s = await ownedGet(["syncSettings", "syncRun", "syncPages"]); return { settings: s.syncSettings || DEFAULT, run: s.syncRun || null, pages: s.syncPages || [], binding: s.__binding };  }
@@ -43,14 +44,14 @@ async function closeOwned(run) {
     try { const tab = await chrome.tabs.get(id); if (!tab.active) await chrome.tabs.remove(id); } catch { /* Already closed or navigated away by the user. */ }
   }
 }
-export async function configureSync(enabled, google = false) {
+export async function configureSync(enabled, google = false, pdf = false) {
   const account = await pairedAccount(), SCHOOL = account.district.schoology;
   if (enabled && !await websiteReady(account)) throw new Error("Open Relay setup in this account and turn on Automatically import daily snapshots before enabling reading. AI permission is a separate choice.");
   if (enabled && !await chrome.permissions.contains({ origins: [SCHOOL + "/*"] })) throw new Error("Grant Schoology access first.");
   if (enabled && google && !await chrome.permissions.contains({ origins: ["https://docs.google.com/*"] })) throw new Error("Grant Google Docs access or leave linked documents off.");
   const old = await state();
   if (old.binding !== account.binding) throw new Error("Account changed; operation canceled.");
-  await ownedSet({ syncSettings: { enabled, google: enabled && google } }, account.binding);
+  await ownedSet({ syncSettings: { enabled, google: enabled && google, pdf: enabled && pdf } }, account.binding);
   if (!enabled) {
     await chrome.alarms.clear(ALARM);
     if (old.run?.status === "running") await ownedSet({ syncRun: { ...old.run, status: "paused", message: "Daily reading paused by you.", finishedAt: new Date().toISOString() } });
@@ -172,7 +173,7 @@ export async function tick() {
       const job = run.queue[0]; let result;
       try {
         const tab = await ownedTab(run, job.url.startsWith("https://docs.google.com/"));
-        const output = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readSyncPage, args: [job.url, SCHOOL] });
+        const output = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readSyncPage, args: [job.url, SCHOOL, s.settings.pdf === true, job.title, (await ownedGet('schoolIdentity')).schoolIdentity || null] });
         result = output[0]?.result || { error: "Source did not return readable content." };
       } catch (e) { result = { error: e.message, login: e.message === "LOGIN_REQUIRED" }; }
       const after = await state();
@@ -182,7 +183,7 @@ export async function tick() {
         issue(run, job, result.error);
         run.consecutiveErrors = (run.consecutiveErrors || 0) + 1;
         if (run.consecutiveErrors >= 3) { run.status = "partial"; run.queue = []; run.message = "Reading needs attention after repeated source failures. Check your login and retry from the extension."; }
-        if (result.login) { run.status = "login-required"; run.message = "Sign into Schoology, then choose Sync now in the extension."; run.queue = []; }
+        if (result.login) { run.status = "login-required"; run.message = result.identityChanged ? "The school login changed or could not be verified. Confirm the school account and pair Relay again." : "Sign into Schoology, then choose Sync now in the extension."; run.queue = []; }
       } else {
         run.consecutiveErrors = 0;
         if (job.url.startsWith(SCHOOL + "/")) {
@@ -201,6 +202,29 @@ export async function tick() {
             s.pages = s.pages.filter(p => !p.courseId || run.courses.some(c => c.id === p.courseId));
             addJobs(run, [...run.courses.flatMap(c => [{ url: `${SCHOOL}/course/${c.id}/materials`, title: c.title, course: c.id }, { url: `${SCHOOL}/course/${c.id}/updates`, title: c.title + " · updates", course: c.id }]), { url: SCHOOL + "/grades/grades", title: "My grades", course: null }]);
           }
+        }
+        const additional = result.extraPages || [];
+        for (const file of result.pdfFiles || []) {
+          try {
+            const parsed = await parseLocalPdf(file.bytes);
+            const identity = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(file.title));
+            const tag = [...new Uint8Array(identity)].map(b => b.toString(16).padStart(2,'0')).join('').slice(0,8);
+            if (!parsed.pages.length) issue(run, { ...job, title: file.title }, 'PDF has no readable text layer. Scans require manual reading; no OCR was attempted.', 'attachment');
+            if (parsed.limited) { run.limited = true; issue(run, job, 'PDF limited to the first 20 pages.', 'attachment'); }
+            for (const p of parsed.pages) {
+              const pageUrl = job.url + '#pdf-' + tag + '-page-' + p.page;
+              const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pageUrl));
+              additional.push({ id: 'page-' + [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,24), url: pageUrl, title: `${job.title} · ${file.title} · PDF page ${p.page}`.slice(0,180), text: p.text, readDepth: 'pdf', pdfPage: p.page, capturedAt: new Date().toISOString(), warnings: ['PDF text extracted locally. Table rows preserve visual cell order, but layout/date relationships still need review. No images, OCR or document scripts.', ...(p.truncated ? ['Page truncated at 6,000 characters.'] : [])], links: [] });
+            }
+          } catch (e) { issue(run, { ...job, title: file.title }, e.message, 'attachment'); }
+        }
+        // Recheck account/permission after parsing; PDF bytes never leave this browser.
+        const parsedState = await state();
+        if (!parsedState.settings.enabled || parsedState.binding !== account.binding || parsedState.run?.id !== run.id || parsedState.run.status !== 'running') return;
+        for (const page of additional) {
+          page.courseId = job.course;
+          page.title = `${run.courses.find(c => c.id === job.course)?.title || 'Course'} · ${page.title}`.slice(0,180);
+          const merged = putSnapshot(s.pages, page); s.pages = merged.pages; run.read++; if (merged.changed) run.changed++; if (merged.evicted) run.limited = true;
         }
         if (result.page) {
           result.page.description = job.description || "";

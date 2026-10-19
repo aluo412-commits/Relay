@@ -6,7 +6,7 @@ export const READER_LIBRARY_LIMIT = 300;
 export const READER_CARD_LIMIT = 1200;
 export const READER_MAX_TEXT = 6000;
 export const READER_AI_TEXT_LIMIT = 32000;
-export type ReaderPage = { readDepth?: "description" | "excerpt"; description?: string; descriptionSource?: string; services?: "turnitin"[]; id: string; url: string; title: string; text: string; capturedAt: string; warnings: string[]; links: { title: string; url: string }[] };
+export type ReaderPage = { readDepth?: "description" | "excerpt" | "pdf"; courseId?: string; pdfPage?: number; description?: string; descriptionSource?: string; services?: "turnitin"[]; id: string; url: string; title: string; text: string; capturedAt: string; warnings: string[]; links: { title: string; url: string }[] };
 export type ReaderCapture = { version: 1; pages: ReaderPage[] };
 export type ReaderCard = {
   id: string; sourceId: string; sourceUrl: string; sourceTitle: string; sourceTextHash: string;
@@ -14,9 +14,10 @@ export type ReaderCard = {
   requirement: "required" | "optional" | "unclear";
   quote: string; due: string | null; dueQuote: string | null;
   status: "draft" | "accepted" | "stale";
+  hiddenAt?: string | null; doneAt?: string | null; doneSourceHash?: string | null; hiddenSourceHash?: string | null; capturedAt?: string; dateOrigin?: "source" | "reviewed";
 };
 export type ReaderSyncReport = { id: string; status: "running" | "checked" | "partial" | "paused" | "login-required"; startedAt: string; finishedAt: string | null; courses: { id: string; title: string }[]; read: number; changed: number; checked: number; queued: number; unreadCount: number; limited: boolean; message: string; unread: { url: string; title: string; reason: string; scope: "source" | "attachment" }[] };
-export type ReaderState = { version: 1; pages: ReaderPage[]; cards: ReaderCard[]; analyzedAt: string | null; dailyReport?: ReaderSyncReport; dailySourceIds?: string[] };
+export type ReaderState = { version: 1; pages: ReaderPage[]; cards: ReaderCard[]; analyzedAt: string | null; dailyReport?: ReaderSyncReport; dailySourceIds?: string[]; completionMigrated?: boolean; setupFinished?: "ai" | "local"; hiddenItems?: string[] };
 export const EMPTY_READER: ReaderState = { version: 1, pages: [], cards: [], analyzedAt: null };
 export function safeReaderUrl(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 1200) return null;
@@ -33,7 +34,7 @@ export function safeReaderUrl(value: unknown): string | null {
       if (!m) return null;
       u.pathname = `/${m[1]}/d/${m[2]}/edit`; u.search = "";
     } else return null;
-    u.hash = ""; return u.href;
+    if (!/^#excerpt-[2-8]$/.test(u.hash) && (!districtByOrigin(u.origin) || !/^#pdf-[a-f0-9]{8}-page-\d{1,2}$/.test(u.hash))) u.hash = ""; return u.href;
   } catch { return null; }
 }
 function short(value: unknown, max: number): string { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
@@ -56,7 +57,7 @@ export function validateCapture(value: unknown, maxPages = READER_MAX_PAGES): Re
       const link = rawLink as Record<string, unknown>; const safe = safeReaderUrl(link.url);
       return safe ? [{ url: safe, title: short(link.title, 160) || "Open linked page" }] : [];
     }) : [];
-    return { id, url, readDepth: p.readDepth === "description" || /\/materials\/gp\//.test(url) ? "description" : "excerpt", description: short(p.description, 500), descriptionSource: safeReaderUrl(p.descriptionSource) || undefined, services: Array.isArray(p.services) && p.services.includes("turnitin") ? ["turnitin"] : [], title: short(p.title, 180) || "Course page", text: p.text.trim(), capturedAt: new Date(p.capturedAt).toISOString(), warnings, links };
+    return { id, url, courseId: typeof p.courseId === "string" && /^\d{1,20}$/.test(p.courseId) ? p.courseId : undefined, pdfPage: Number.isInteger(p.pdfPage) && Number(p.pdfPage) >= 1 && Number(p.pdfPage) <= 20 ? Number(p.pdfPage) : undefined, readDepth: p.readDepth === "pdf" ? "pdf" : p.readDepth === "description" || /\/materials\/gp\//.test(url) ? "description" : "excerpt", description: short(p.description, 500), descriptionSource: safeReaderUrl(p.descriptionSource) || undefined, services: Array.isArray(p.services) && p.services.includes("turnitin") ? ["turnitin"] : [], title: short(p.title, 180) || "Course page", text: p.text.trim(), capturedAt: new Date(p.capturedAt).toISOString(), warnings, links };
   });
   return { version: 1, pages };
 }

@@ -27,18 +27,28 @@ let schoolIdentity = '424242';
 let changed = false, loggedOut = false, aiCalls = 0, holdProfile = false, heldProfile = false, releaseProfile;
 const schoolRequests = [], googleRequests = [];
 const phrase = "Required homework: read chapter three and complete question one.";
+function fixturePdf() {
+  const lines = ['SYNTHETIC MATH HOMEWORK LIST', 'Read section 4.3 and complete exercise 3.', phrase];
+  const stream = 'BT /F1 12 Tf 50 750 Td ' + lines.map((line,i) => (i ? '0 -22 Td ' : '') + '(' + line + ') Tj').join(' ') + ' ET';
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`];
+  let pdf = '%PDF-1.4\n'; const offsets = [0];
+  objects.forEach((o,i) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${i+1} 0 obj\n${o}\nendobj\n`; });
+  const at = Buffer.byteLength(pdf); pdf += 'xref\n0 6\n0000000000 65535 f \n' + offsets.slice(1).map(o => String(o).padStart(10,'0') + ' 00000 n \n').join('') + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${at}\n%%EOF`;
+  return Buffer.from(pdf);
+}
 function html(title, body) { return `<title>${title} | Schoology</title><nav id="profile"><a href="/user/${schoolIdentity}">Synthetic current profile</a></nav><main><h1>${title}</h1>${body}<input type="hidden" value="NEVER_CAPTURE_SECRET"><script>/* NEVER_CAPTURE_SCRIPT */</script></main>`; }
 try {
   context = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true, ignoreDefaultArgs: ["--disable-extensions"], args: ["--enable-unsafe-extension-debugging"] });
   await context.addCookies([{ name: 'relay_session', value: 'fixture-a', domain: 'relay.aaronluo.com', path: '/', secure: true, httpOnly: true, sameSite: 'Lax' }]);
   await context.route(SCHOOL + '/**', async route => {
     const request = route.request(); const u = new URL(request.url()); schoolRequests.push({ path: u.pathname + u.search, method: request.method() });
+    if (u.pathname === '/attachment/math-homework.pdf') return route.fulfill({ contentType: 'application/pdf', body: fixturePdf() });
     if (loggedOut) return route.fulfill({ contentType: "text/html", body: html("Sign in", '<input type="password">') });
     let body;
     if (u.pathname === "/courses") body = '<a href="/course/11">SYNTHETIC Science</a><a href="/course/22">SYNTHETIC Math</a><a href="/course/11/members">NEVER FOLLOW roster</a>';
     else if (u.pathname === "/course/11/materials" && !u.search) body = '<p>Course instructions and teaching materials.</p><a href="/assignment/101">Chapter three homework</a><a href="/course/11/materials?f=99">Unit folder</a><a href="/course/11/materials/gp/88">Syllabus PDF wrapper</a><a href="/external_tool/123/launch">External tool</a>';
     else if (u.pathname === "/course/11/materials" && u.search) body = '<p>Nested unit folder contains course practice.</p><a href="/assignment/102">Optional practice</a><a href="/course/11/materials">Back to materials</a>';
-    else if (u.pathname === "/course/22/materials") body = '<p>Math course materials and learning instructions.</p><a href="/assignment/202">Math homework</a><a href="https://docs.google.com/presentation/d/SYNTHETIC/edit">Daily slides</a><a href="https://docs.google.com/document/d/REFERENCE_ONLY/edit">Textbook reference</a>';
+    else if (u.pathname === "/course/22/materials") body = '<p>Math course materials and learning instructions.</p><a href="/attachment/math-homework.pdf">Math HW list PDF</a><a href="/assignment/202">Math homework</a><a href="https://docs.google.com/presentation/d/SYNTHETIC/edit">Daily slides</a><a href="https://docs.google.com/document/d/REFERENCE_ONLY/edit">Textbook reference</a>';
     else if (u.pathname.includes("/materials/gp/")) body = '<p>Syllabus PDF. The file itself is NOT this page.</p><iframe src="about:blank"></iframe>';
     else if (u.pathname.startsWith("/assignment/")) body = `<p>${phrase}${changed && u.pathname === "/assignment/101" ? " Updated by the synthetic teacher: question two is also required." : ""}</p><div>Submission status: Submitted</div><a href="https://www.turnitin.com/assignment?token=DO_NOT_COPY">Turnitin</a><a href="/assignment/101/submit">NEVER FOLLOW submit</a>`;
     else if (u.pathname.endsWith("/updates")) body = '<p>Course announcement: read the assignment instructions before class.</p>';
@@ -46,7 +56,7 @@ try {
     else return route.fulfill({ status: 404, body: "fixture path not supported" });
     return route.fulfill({ contentType: "text/html", body: html("SYNTHETIC COURSE FIXTURE", body) });
   });
-  await context.route("https://docs.google.com/**", route => { googleRequests.push(route.request().url()); return route.fulfill({ contentType: route.request().url().includes("/export/") ? "text/plain" : "text/html", body: route.request().url().includes("/export/") ? phrase + " Recommended additional practice is optional." : html("SYNTHETIC Slides", "Course slides text is read using the text export.") }); });
+  await context.route("https://docs.google.com/**", route => { googleRequests.push(route.request().url()); return route.fulfill({ contentType: route.request().url().includes("/export/") ? "text/plain" : "text/html", body: route.request().url().includes("/export/") ? 'SYNTHETIC background context.\n'.repeat(260) + phrase + ' Recommended additional practice is optional.' : html("SYNTHETIC Slides", "Course slides text is read using the text export.") }); });
   await context.route("https://relay.aaronluo.com/**", async route => {
     const url = new URL(route.request().url());
     const account = requestAccount(route.request());
@@ -60,7 +70,7 @@ try {
       aiCalls++;
       const body = route.request().postDataJSON(); assert.equal(body.consent, true); assert.equal(body.expectedAiIdentity, "a".repeat(64)); assert.ok(body.capture.pages.length <= 5); assert.ok(body.capture.pages.every(p => p.readDepth !== "description" && !p.url.includes("REFERENCE_ONLY") && !p.url.includes("/grades/grades")));
       const pages = body.capture.pages.filter(p => p.text.includes(phrase));
-      return route.fulfill({ json: { cards: pages.map((p, i) => ({ id: "reader-" + String(i + aiCalls * 10).padStart(24, "0"), sourceId: p.id, sourceUrl: p.url, sourceTitle: p.title, sourceTextHash: "a".repeat(64), title: "SYNTHETIC — Read chapter three", course: "Synthetic course", kind: "assignment", requirement: "required", quote: phrase, due: null, dueQuote: null, status: "draft" })), rejected: 0, analyzedAt: new Date().toISOString() } });
+      return route.fulfill({ json: { cards: pages.map((p, i) => ({ id: "reader-" + String(i + aiCalls * 10).padStart(24, "0"), sourceId: p.id, sourceUrl: p.url, sourceTitle: p.title, sourceTextHash: "a".repeat(64), title: p.url.includes('/assignment/101') ? 'SYNTHETIC — Read chapter three tomorrow' : 'SYNTHETIC — Read chapter three', course: "Synthetic course", kind: "assignment", requirement: "required", quote: phrase, due: p.url.includes('/assignment/101') ? '2099-09-21' : null, dueQuote: p.url.includes('/assignment/101') ? phrase : null, status: "draft" })), rejected: 0, analyzedAt: new Date().toISOString() } });
     }
     if (url.pathname === "/api/student/dashboard") return route.fulfill({ json: { items: [], sources: [], fetchedAt: new Date().toISOString(), schoologyProfile: null } });
     const response = await route.fetch({ url: "http://localhost:3002" + url.pathname + url.search });
@@ -107,13 +117,15 @@ try {
   try { await until(async () => (await dashboard.locator('.sg-proof').allTextContents()).some(x => x.includes('paired')), 20000); }
   catch (error) { console.error('Bridge fixture status:', await dashboard.locator('.sg-guide').innerText()); console.error(await worker.evaluate(async () => { const tab = (await chrome.tabs.query({ url: 'https://relay.aaronluo.com/*' }))[0]; return chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ bridge: globalThis.__relayStatusBridge, ready: document.documentElement.dataset.relayDailyReaderReady }) }); })); throw error; }
   await dashboard.locator('.sg-wizard-actions').getByRole('button', { name: 'Continue', exact: true }).click();
-  await popup.locator("#daily-consent").check(); await popup.locator("#google-consent").check(); await popup.locator("#enable-sync").click();
+  await popup.locator("#daily-consent").check(); await popup.locator("#google-consent").check(); await popup.locator('#pdf-consent').check(); await popup.locator("#enable-sync").click();
   let run = await until(async () => { const r = await getRun(); return r?.finishedAt ? r : null; });
   if (!run.courses.length) console.error("Fixture sweep:", JSON.stringify(run), schoolRequests, context.pages().map(p=>p.url().split("?")[0]), await worker.evaluate(async () => ({permissions: await chrome.permissions.getAll(), tabs: (await chrome.tabs.query({})).map(t => ({id: t.id, url: (t.url || "").split("?")[0], status: t.status, pending: !!t.pendingUrl}))})));
   assert.equal(run.courses.length, 2); assert.ok(run.read >= 9); assert.equal(run.status, "partial"); assert.ok(run.unreadCount >= 2);
   const snapshots = await worker.evaluate(async () => (await globalThis.__fixtureGet('syncPages')).syncPages);
+  assert.ok(snapshots.some(p => p.url.includes('#excerpt-2') && p.text.includes(phrase)), 'Homework after the first 6k must be retained');
   assert.ok(snapshots.some(p => p.url.includes("?f=99"))); assert.ok(snapshots.some(p => p.url.includes("docs.google.com")));
   assert.ok(snapshots.every(p => !p.text.includes("NEVER_CAPTURE")));
+  assert.ok(snapshots.some(p => p.readDepth === 'pdf' && p.text.includes('Read section 4.3')), 'Actual local PDF extraction must reach the saved snapshot');
   const stored = await worker.evaluate(async () => chrome.storage.local.get(null));
   assert.ok(stored.ownedVault?.ciphertext); assert.equal(stored.syncPages, undefined); assert.equal(JSON.stringify(stored).includes(phrase), false);
   assert.ok(snapshots.some(p => p.url.includes("REFERENCE_ONLY") && p.readDepth === "description"));
@@ -137,10 +149,25 @@ try {
   await until(() => aiCalls > 0);
   await until(async () => await dashboard.locator('.rr-draft').count() > 0);
   await dashboard.getByRole('navigation').getByRole('button', { name: 'Assignments', exact: true }).click();
-  await dashboard.locator('#assignment-drafts .rr-draft').first().waitFor();
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: /^Upcoming/ }).click();
+  assert.equal(await dashboard.locator('#assignment-drafts .rt-task').count(), 0, 'Ungrounded future dates must not enter Upcoming');
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: /^Date needs checking/ }).click();
+  assert.equal((await dashboard.locator('#assignment-drafts h3').allTextContents()).some(t => /tomorrow/i.test(t)), false, 'Source-relative titles must not be pushed as current reminders');
+  const tasks = dashboard.locator('#assignment-drafts .rt-task'); await tasks.first().waitFor();
+  const taskCount = await tasks.count();
+  await tasks.first().getByRole('checkbox').check(); assert.equal(await tasks.count(), taskCount, 'Checking off must not remove the row');
+  await tasks.first().getByRole('button', { name: 'Hide', exact: true }).click(); assert.equal(await tasks.count(), taskCount - 1);
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: 'Undo', exact: true }).click(); assert.equal(await tasks.count(), taskCount);
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: /^Hide this view/ }).click();
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: /^Hidden/ }).click(); assert.equal(await tasks.count(), taskCount);
+  await dashboard.getByRole('button', { name: 'Restore all hidden instructions', exact: true }).click(); assert.equal(await tasks.count(), 0);
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: /^Date needs checking/ }).click(); assert.equal(await tasks.count(), taskCount);
+  assert.equal(await tasks.first().getByRole('checkbox').isChecked(), true);
   assert.ok((await dashboard.locator('#assignment-drafts').innerText()).includes('Unreviewed'));
+  await tasks.filter({ has: dashboard.locator(`a[href="${SCHOOL}/assignment/202"]`) }).getByRole('button', { name: 'Hide', exact: true }).click();
   await dashboard.getByRole("navigation").getByRole("button", { name: "Overview", exact: true }).click();
   await dashboard.getByRole("heading", { name: "What your courses need.", exact: true }).waitFor();
+  await dashboard.locator('.rr-status-list > summary').click();
   await dashboard.getByText("Turnitin · Status unknown", { exact: true }).first().waitFor();
   if (process.env.READER_SCREENSHOTS) {
     await dashboard.setViewportSize({ width: 1440, height: 1000 });
@@ -151,6 +178,9 @@ try {
     await dashboard.setViewportSize({ width: 1280, height: 900 });
   }
   await dashboard.getByRole("navigation").getByRole("button", { name: "Setup & connections", exact: true }).click();
+  await dashboard.getByRole('heading', { name: 'Your course connection', exact: true }).waitFor();
+  assert.equal(await dashboard.getByRole('button', { name: 'Continue setup', exact: true }).count(), 0);
+  await dashboard.getByRole('button', { name: 'AI permission', exact: true }).click();
   // Disable recurring AI after checking consent. The rest of this test exercises
   // changes and login failures without additional model-fixture requests.
   await dashboard.getByRole("checkbox", { name: "Automatically analyze new or changed excerpts", exact: false }).uncheck();
@@ -179,7 +209,8 @@ try {
   await popup.locator("#sync-now").click();
   run = await until(async () => { const r = await getRun(); return r?.id !== switched.id && r?.status === "login-required" ? r : null; });
   assert.equal(run.status, "login-required");
-  await dashboard.reload(); await dashboard.locator('[data-setup-step="4"]').waitFor();
+  await dashboard.reload(); await dashboard.getByRole('heading', { name: 'Your course connection', exact: true }).waitFor();
+  await dashboard.getByRole('button', { name: 'AI permission', exact: true }).click(); await dashboard.locator('[data-setup-step="4"]').waitFor();
   for (let i = 0; i < 3; i++) await dashboard.locator('.sg-wizard-actions').getByRole('button', { name: 'Back', exact: true }).click();
   await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).waitFor();
   assert.equal(await dashboard.getByRole("checkbox", { name: "Automatically import daily snapshots", exact: false }).isChecked(), true);
@@ -201,9 +232,14 @@ try {
   await context.addCookies([{ name: 'relay_session', value: 'fixture-a', domain: 'relay.aaronluo.com', path: '/', secure: true, httpOnly: true, sameSite: 'Lax' }]);
   await worker.evaluate(p => { globalThis.__fixtureAccount = p; }, accountA);
   await dashboard.reload(); await until(async () => await dashboard.locator('.rr-page').count() >= 9);
+  await dashboard.getByRole('navigation').getByRole('button', { name: 'Assignments', exact: true }).click();
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: /^Hidden/ }).click();
+  assert.ok(await dashboard.locator('#assignment-drafts .rt-task').count() > 0, 'Hidden items survive collection refresh and account round-trip');
+  await dashboard.locator('#assignment-drafts').getByRole('button', { name: /^Done/ }).click();
+  assert.ok(await dashboard.locator('#assignment-drafts .rt-task input:checked').count() > 0, 'Completion survives refresh without deleting the task');
   await worker.evaluate(() => { globalThis.__fixtureAccount = { user: null }; });
   await context.clearCookies(); await dashboard.reload(); await dashboard.getByRole('heading', { name: 'Your schoolwork stays yours.' }).waitFor();
   assert.equal(await dashboard.locator('.rr-page').count(), 0);
   if (process.env.READER_SCREENSHOTS) await dashboard.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'student-account-entry.png'), fullPage: true });
-  console.log(JSON.stringify({ district: district.id, encryptedExtensionCache: true, differentAccountCannotSeeSources: true, lateAccountCaptureRejected: true, lateAccountProfileRejected: true, accountPreferencesIsolated: true, ownLibraryRestored: true, logoutHidesReader: true, oneSetupStepAtATime: true, websiteRequiredBeforeEnable: true, liveStatusBridge: true, assignmentDraftsVisible: true, actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, accountEndpointMocked: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, referenceDescriptionsOnly: true, automaticBriefWithoutDocSelection: true, turnitinStatusNotInferredFromSchoology: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, changedSchoolIdentityPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
+  console.log(JSON.stringify({ district: district.id, encryptedExtensionCache: true, differentAccountCannotSeeSources: true, lateAccountCaptureRejected: true, lateAccountProfileRejected: true, accountPreferencesIsolated: true, ownLibraryRestored: true, logoutHidesReader: true, pdfTextExtractedLocally: true, setupStaysFinished: true, checkmarksStayVisible: true, hideUndoAndRestore: true, oneSetupStepAtATime: true, websiteRequiredBeforeEnable: true, liveStatusBridge: true, assignmentDraftsVisible: true, actualUnpackedExtension: true, syntheticSchoolAndAiOnly: true, accountEndpointMocked: true, nativeHostConsentNotTested: true, discoveredCourses: 2, folderTraversal: true, linkedGoogleText: true, unreadFilesReported: true, noSubmissionRequests: true, localAutomaticImport: true, aiRequiresSeparateConsent: true, referenceDescriptionsOnly: true, automaticBriefWithoutDocSelection: true, turnitinStatusNotInferredFromSchoology: true, incrementalChangeCount: 1, staleCardsRemoved: true, pauseStopsReading: true, expiredLoginPauses: true, changedSchoolIdentityPauses: true, mobileOverflow: false, preferencesPersist: true, aiFixtureCalls: aiCalls }, null, 2));
 } finally { await context?.close(); rmSync(dir, { recursive: true, force: true }); }

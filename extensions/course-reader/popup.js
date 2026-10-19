@@ -60,8 +60,9 @@ function renderSync(result) {
   $("pause-sync").disabled = !enabled;
   $("sync-now").disabled = !enabled || result.report?.status === "running";
   $("google-consent").disabled = enabled;
+  $("pdf-consent").disabled = enabled;
   $("daily-consent").disabled = enabled;
-  if (enabled) { $("daily-consent").checked = true; $("google-consent").checked = result.settings.google; }
+  if (enabled) { $("daily-consent").checked = true; $("google-consent").checked = result.settings.google; $("pdf-consent").checked = result.settings.pdf === true; }
   const r = result.report;
   $("sync-summary").textContent = r ? `${r.status} · ${r.courses.length} courses · ${r.read} text snapshots · ${r.changed} new/changed · ${r.queued} queued. ${r.message}` : result.message || "No daily sweep yet.";
   $("sync-report").replaceChildren();
@@ -80,7 +81,7 @@ $("enable-sync").addEventListener("click", async () => {
   if ($("google-consent").checked) origins.push("https://docs.google.com/*");
   try {
     if (!await chrome.permissions.request({ origins })) { status("Daily reading is off because access was not granted.", true); return; }
-    const result = await action({ type: "sync-enable", google: $("google-consent").checked });
+    const result = await action({ type: "sync-enable", google: $("google-consent").checked, pdf: $("pdf-consent").checked });
     renderSync(result); if (result) status("Daily reading enabled. Click Sync now, then return to Relay to allow AI analysis if desired. Reading alone does not create assignments.");
   } catch (e) { status(e.message, true); }
 });

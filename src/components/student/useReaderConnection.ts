@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { StudentSession } from "@/lib/student/accountTypes";
-export type ReaderConnection = { detected: boolean; checking: boolean; version?: string; paired?: boolean; enabled?: boolean; websiteReady?: boolean; status?: string | null; read?: number; message?: string };
+export type ReaderConnection = { detected: boolean; checking: boolean; version?: string; paired?: boolean; enabled?: boolean; pdf?: boolean; websiteReady?: boolean; status?: string | null; read?: number; message?: string };
 export function useReaderConnection(account: StudentSession, ready: boolean) {
   const [status, setStatus] = useState<ReaderConnection>({ detected: false, checking: true });
   const request = useRef<() => void>(() => {});
@@ -19,7 +19,7 @@ export function useReaderConnection(account: StudentSession, ready: boolean) {
       clearTimeout(timeout); pending = "";
       const r = e.data.result;
       if (!r || typeof r.ok !== "boolean") return;
-      setStatus({ detected: true, checking: false, version: typeof r.version === "string" ? r.version.slice(0, 20) : undefined, paired: r.ok && r.paired === true, enabled: r.ok && r.enabled === true, websiteReady: r.ok && r.websiteReady === true, status: typeof r.status === "string" ? r.status.slice(0, 40) : null, read: Number.isSafeInteger(r.read) ? Math.max(0, r.read) : 0, message: typeof (r.error || r.message) === "string" ? (r.error || r.message).slice(0, 500) : "" });
+      setStatus({ detected: true, checking: false, version: typeof r.version === "string" ? r.version.slice(0, 20) : undefined, paired: r.ok && r.paired === true, enabled: r.ok && r.enabled === true, pdf: r.ok && r.pdf === true, websiteReady: r.ok && r.websiteReady === true, status: typeof r.status === "string" ? r.status.slice(0, 40) : null, read: Number.isSafeInteger(r.read) ? Math.max(0, r.read) : 0, message: typeof (r.error || r.message) === "string" ? (r.error || r.message).slice(0, 500) : "" });
     };
     request.current = check;
     window.addEventListener("message", receive); window.addEventListener("focus", check);

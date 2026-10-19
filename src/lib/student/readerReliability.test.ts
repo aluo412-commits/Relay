@@ -1,0 +1,38 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { cardTiming, neutralTitle, safeCardDate, explicitDateInQuote } from "./readerDates";
+import { mergeAnalyzedCards, patchCardActions } from "./readerActions";
+import { canAnalyzeExcerpt, shouldAutoAnalyze } from "./readerPolicy";
+import { safeReaderUrl, type ReaderCard, type ReaderPage } from "./reader";
+const card: ReaderCard = { id: "reader-" + "a".repeat(24), sourceId: "page-1", sourceUrl: "https://fuhsd.schoology.com/assignment/123", sourceTitle: "Math homework", sourceTextHash: "a".repeat(64), title: "Complete the practice tomorrow", course: "Math", kind: "assignment", requirement: "required", quote: "9/21: Complete the practice tomorrow.", due: "2026-10-19", dueQuote: "9/21: Complete the practice tomorrow.", status: "draft" };
+test("old source tomorrow never becomes a current deadline or relative title", () => {
+  assert.equal(safeCardDate(card), null);
+  assert.equal(cardTiming(card, "2026-10-18").bucket, "unknown");
+  assert.equal(cardTiming(card, "2026-10-18").relative, true);
+  assert.equal(neutralTitle(card.title), "Complete the practice");
+  assert.equal(explicitDateInQuote("2026-09-21", "Posted September 21, 2026. Homework tomorrow."), false);
+  const past = { ...card, due: "2026-09-21", dueQuote: "Due September 21, 2026." };
+  assert.equal(cardTiming(past, "2026-10-18").bucket, "past");
+  assert.equal(cardTiming({ ...card, sourceTitle: "Tutorial (Closed)" }, "2026-10-18").bucket, "past");
+  assert.equal(cardTiming({ ...card, sourceTitle: "Closed-book test" }, "2026-10-18").closed, false);
+  assert.equal(safeCardDate({ ...card, status: "accepted", dateOrigin: "reviewed" }), "2026-10-19");
+});
+test("hiding and completion are reversible, independent, and survive analysis refresh", () => {
+  const hidden = patchCardActions([card], [card.id], "hide");
+  const completed = patchCardActions(hidden, [card.id], "done");
+  const refreshed = mergeAnalyzedCards(completed, [{ ...card, title: "Practice" }], [card.sourceId]);
+  assert.ok(refreshed[0].hiddenAt); assert.ok(refreshed[0].doneAt); assert.equal(refreshed.length, 1);
+  const restored = patchCardActions(refreshed, [card.id], "restore");
+  assert.equal(restored[0].hiddenAt, null); assert.ok(restored[0].doneAt);
+  assert.equal(patchCardActions(restored, [card.id], "reopen")[0].doneAt, null);
+  assert.equal(mergeAnalyzedCards(completed, [], [card.sourceId]).length, 1, "No model output must not erase acted-on cards");
+});
+test("PDF page and long-export provenance stay bounded and distinct from wrappers", () => {
+  const p: ReaderPage = { id: "p1", url: "https://fuhsd.schoology.com/course/123/materials/gp/456#pdf-abcdef01-page-1", title: "Math HW list", text: "Read section 4.3 and complete exercise three.", capturedAt: new Date().toISOString(), links: [], warnings: [], readDepth: "pdf", pdfPage: 1 };
+  assert.equal(safeReaderUrl(p.url), p.url);
+  assert.ok(shouldAutoAnalyze(p));
+  assert.equal(canAnalyzeExcerpt({ ...p, readDepth: "description" }), false);
+  assert.equal(safeReaderUrl("https://docs.google.com/document/d/ABC/edit#excerpt-8"), "https://docs.google.com/document/d/ABC/edit#excerpt-8");
+  assert.equal(safeReaderUrl("https://docs.google.com/document/d/ABC/edit#excerpt-999"), "https://docs.google.com/document/d/ABC/edit");
+  assert.equal(shouldAutoAnalyze({ ...p, title: "Math Tutorial Closed" }), false);
+});

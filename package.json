@@ -17,7 +17,7 @@
     "@prisma/client": "^6.3.0",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.8",
-    "next": "^15.1.6",
+    "next": "15.5.28",
     "openai": "^4.83.0",
     "pptxgenjs": "^4.0.1",
     "react": "^19.0.0",
@@ -30,6 +30,7 @@
     "@types/node": "^22.13.0",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
+    "pdfjs-dist": "6.4.299",
     "prisma": "^6.3.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"

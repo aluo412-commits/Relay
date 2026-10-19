@@ -1,4 +1,6 @@
-# Browser course reader — 0.5 guided setup pilot
+# Browser course reader — 0.6 reliability pilot
+
+Current behavior and boundaries: [dates, reversible actions, PDF text and homework-list coverage](reader-reliability.md). This adds optional bounded local PDF parsing and segmented text; it does not claim every file/layout is supported.
 
 Current setup, school database lookup, readiness checks and assignment visibility: [student-setup.md](student-setup.md). Collection, local import and AI consent remain separate.
 
@@ -47,7 +49,7 @@ npx prisma generate
 
 Never reset existing tables. PostgreSQL atomically enforces one concurrent request and 12 requests per user/day across serverless instances. Failed/canceled attempts can count. Per-user quotas do not replace signup/abuse controls needed before broad release.
 
-Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains fifteen source/documentation files and no credentials.
+Uses existing provider environment configuration, `AUTH_SECRET`, DATABASE_URL and Google sign-in. No school credentials on Vercel. Rebuild the ZIP after extension edits; the allow-listed, deterministic archive contains twenty-one source/documentation files and no credentials.
 
 ## Verification
 

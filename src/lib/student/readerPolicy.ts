@@ -1,12 +1,14 @@
 import { districtByOrigin } from "../../../extensions/course-reader/districts.js";
 import { isAnswerMaterial, readingPriority } from "../../../extensions/course-reader/priority.js";
+import { sourceClosed } from "./readerDates";
 import type { ReaderPage } from "./reader";
 export function pagePriority(page: ReaderPage) {
+  if (/\/materials(?:[?#]|$)/.test(page.url) && page.readDepth !== "description" && /\b(?:required\s+(?:homework|problems?|reading)|homework\s*:|complete\s+(?:exercises?|problems?|questions?|sections?)|hw\s*:)/i.test(page.text)) return { level: "important", reason: "Explicit homework instructions appear inline in the materials index. Link titles alone are not proof of assigned work." };
   return readingPriority(page.url, page.title, page.description || (/\/updates/.test(page.url) ? page.text.slice(0, 700) : ""));
 }
-export function canAnalyzeExcerpt(page: ReaderPage): boolean { return page.readDepth !== "description" && !/\/materials\/gp\//.test(page.url) && !isAnswerMaterial(page.title, page.description); }
+export function canAnalyzeExcerpt(page: ReaderPage): boolean { return page.readDepth !== "description" && (page.readDepth === "pdf" || !/\/materials\/gp\//.test(page.url)) && !isAnswerMaterial(page.title, page.description); }
 export function shouldAutoAnalyze(page: ReaderPage): boolean {
-  return canAnalyzeExcerpt(page) && pagePriority(page).level === "important";
+  return canAnalyzeExcerpt(page) && !sourceClosed(page.title) && pagePriority(page).level === "important";
 }
 export type SubmissionObservation = { provider: "Schoology" | "Turnitin"; status: "submitted" | "not_submitted" | "submitted_ungraded" | "unknown"; quotes: string[]; reason: string };
 // These are source-text observations, not verified platform API states. Never
