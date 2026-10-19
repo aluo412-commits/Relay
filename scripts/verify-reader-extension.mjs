@@ -155,6 +155,11 @@ try {
   assert.equal((await dashboard.locator('#assignment-drafts h3').allTextContents()).some(t => /tomorrow/i.test(t)), false, 'Source-relative titles must not be pushed as current reminders');
   const tasks = dashboard.locator('#assignment-drafts .rt-task'); await tasks.first().waitFor();
   const taskCount = await tasks.count();
+  await dashboard.locator('#assignment-drafts .rt-course-filter select').selectOption({ label: 'SYNTHETIC Math' });
+  assert.ok(await tasks.count() > 0);
+  assert.ok((await tasks.locator('.rt-course').allTextContents()).every(name => name === 'SYNTHETIC Math'));
+  await dashboard.locator('#assignment-drafts .rt-course-filter select').selectOption('');
+  assert.equal(await tasks.count(), taskCount);
   await tasks.first().getByRole('checkbox').check(); assert.equal(await tasks.count(), taskCount, 'Checking off must not remove the row');
   await tasks.first().getByRole('button', { name: 'Hide', exact: true }).click(); assert.equal(await tasks.count(), taskCount - 1);
   await dashboard.locator('#assignment-drafts').getByRole('button', { name: 'Undo', exact: true }).click(); assert.equal(await tasks.count(), taskCount);
@@ -166,15 +171,31 @@ try {
   assert.ok((await dashboard.locator('#assignment-drafts').innerText()).includes('Unreviewed'));
   await tasks.filter({ has: dashboard.locator(`a[href="${SCHOOL}/assignment/202"]`) }).getByRole('button', { name: 'Hide', exact: true }).click();
   await dashboard.getByRole("navigation").getByRole("button", { name: "Overview", exact: true }).click();
-  await dashboard.getByRole("heading", { name: "What your courses need.", exact: true }).waitFor();
+  await dashboard.getByRole("heading", { name: "Assignments, in focus.", exact: true }).waitFor();
+  await dashboard.getByRole('textbox', { name: 'Search instructions and calendar sources' }).fill('SYNTHETIC Math');
+  await dashboard.getByRole('heading', { name: 'Matching instructions', exact: true }).waitFor();
+  assert.ok(await dashboard.locator('.rd-search-tasks .rt-task').count() > 0, 'Search includes unreviewed instructions, not just accepted/calendar records');
+  assert.ok((await dashboard.locator('.rd-search-tasks .rt-course').allTextContents()).every(name => name === 'SYNTHETIC Math'));
+  await dashboard.getByRole('button', { name: 'Clear search', exact: true }).click();
   await dashboard.locator('.rr-status-list > summary').click();
   await dashboard.getByText("Turnitin · Status unknown", { exact: true }).first().waitFor();
   if (process.env.READER_SCREENSHOTS) {
     await dashboard.setViewportSize({ width: 1440, height: 1000 });
+    await dashboard.locator('.rr-status-list > summary').click();
+    await dashboard.evaluate(() => scrollTo(0, 0));
+    await dashboard.screenshot({ path: join(process.env.READER_SCREENSHOTS, 'relay-redesign-desktop.png'), fullPage: true });
     await dashboard.locator('.rr-auto-brief').screenshot({ path: join(process.env.READER_SCREENSHOTS, 'selective-reader-desktop.png') });
     await dashboard.setViewportSize({ width: 390, height: 844 });
     await dashboard.locator('.rr-auto-brief').screenshot({ path: join(process.env.READER_SCREENSHOTS, 'selective-reader-mobile.png') });
     assert.equal(await dashboard.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    for (const width of [375, 768, 1024]) {
+      await dashboard.setViewportSize({ width, height: 900 });
+      assert.equal(await dashboard.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `No overflow at ${width}`);
+      await dashboard.evaluate(() => scrollTo(0, 0));
+      await dashboard.screenshot({ path: join(process.env.READER_SCREENSHOTS, `relay-redesign-${width}.png`), fullPage: true });
+    }
+    await dashboard.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await dashboard.locator('.rs-sidebar nav button').first().evaluate(el => getComputedStyle(el).transitionDuration), '0s');
     await dashboard.setViewportSize({ width: 1280, height: 900 });
   }
   await dashboard.getByRole("navigation").getByRole("button", { name: "Setup & connections", exact: true }).click();

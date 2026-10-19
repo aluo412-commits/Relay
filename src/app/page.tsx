@@ -15,5 +15,5 @@ export const metadata: Metadata = {
   },
 };
 export default function Page() {
-  return <StudentAccountGate initialNow={new Date().toISOString()} />;
+  return <><link rel="preload" href="/fonts/manrope-variable.woff2" as="font" type="font/woff2" crossOrigin="anonymous"/><link rel="preload" href="/fonts/space-grotesk-variable.woff2" as="font" type="font/woff2" crossOrigin="anonymous"/><StudentAccountGate initialNow={new Date().toISOString()} /></>;
 }

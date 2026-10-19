@@ -59,6 +59,14 @@ try {
   await page.locator('.sg-wizard-actions').getByRole('button', { name: 'Back', exact: true }).click();
   assert.equal(await page.getByRole('checkbox', { name: 'Automatically import daily snapshots', exact: false }).isChecked(), true);
   assert.equal(aiCalls, 0, 'Tutorial navigation never grants AI consent');
+  await page.getByRole('navigation').getByRole('button', { name: 'Assignments', exact: true }).click();
+  assert.equal(new URL(page.url()).searchParams.get('view'), 'assignments');
+  await page.getByRole('navigation').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await page.goBack();
+  await page.locator('.rs-page-heading h1').filter({ hasText: 'Assignments' }).waitFor();
+  assert.equal(await page.locator('.rs-page-heading h1').evaluate(el => document.activeElement === el), true);
+  await page.reload();
+  await page.locator('.rs-page-heading h1').filter({ hasText: 'Assignments' }).waitFor();
   await page.locator('.sa-account-strip').getByRole('button', { name: 'Change school' }).click();
   await page.getByLabel('Find your school').fill('Fremont');
   await page.getByRole('button', { name: 'Search NCES for this name or city' }).click();
