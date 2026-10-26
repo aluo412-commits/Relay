@@ -33,6 +33,10 @@ On mobile: brand + visible wrapping navigation; instructions first, context belo
 
 Signature: a course reading ledger with explicit Text / Drafts / Gaps indicators. It describes what was read, not a misleading completion percentage. The weekly date strip is compact context rather than the headline.
 
+## After-school planning extension
+
+`?view=planner` adds a student-authored routine and reviewable time rail without changing the assignment-first Overview. Reuse these tokens; fixed blocks are ink, study has an indigo edge, completed planning sessions are green, and breaks/free time use a dashed quiet boundary. Exact times and durations, not proportional-height claims or productivity scores. A three-stage editor renders one stage at a time; focus/rest detail is collapsed behind a summary to keep the first screen short. The user can move sessions with time inputs and pin them; no drag-only controls. The main course wizard remains separate. [Product research and constraints](../../docs/after-school-planner.md).
+
 ## Invariants
 - One copy of each task list; reviewed and draft instructions remain visible together, with clear labels.
 - Done never disappears on checking. Hidden/Undo/Restore and all temporal categories stay available.

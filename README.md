@@ -2,6 +2,8 @@
 
 A student dashboard for assignments, school updates, calendar events, and school email. The account-based pilot supports FUHSD and Palo Alto Unified (PAUSD) Schoology. [Guided setup](docs/student-setup.md) adds specific school links, a real NCES US public-school directory search, explicit unsupported-portal states, extension readiness checks and visible assignment drafts. Directory coverage is not the same as reader support. [Reader 0.8](docs/lynbrook-website-reader.md) adds manual Lynbrook public-page snapshots, separately stored/displayed with no AI or assignment creation. Its [0.7 course behavior](docs/schoology-access-and-discovery.md) uses explicitly selected PDF source pages and bounded Schoology viewer resolution rather than guessing HW lists. Temporal safeguards, reversible task controls and persistent setup completion remain. Official Schoology OAuth is researched, not yet connected; it requires Relay’s own approved application access.
 
+[After-school planning](docs/after-school-planner.md) adds weekday availability, fixed routines, student-edited estimates and a local smart scheduler at `/?view=planner`. It generates a draft, preserves pinned/completed sessions when replanning, shows overflow, and saves only after confirmation. Plans are encrypted per account/district/campus; no AI upload, external calendar writes or homework-status changes.
+
 - Production: https://relay.aaronluo.com
 - New dashboard: `/`
 - Previous team workspace source and demo: `/legacy`, `/legacy/demo`

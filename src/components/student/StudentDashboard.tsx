@@ -6,6 +6,7 @@ import { SCHOOL_TIMEZONE, dateLabel, dayKey, offsetDay, type StudyDashboard, typ
 import { Icon, RelayMark, type IconName } from "./Icons";
 import "./reader-work.css";
 import ReaderTasks from "./ReaderTasks";
+import AfterSchoolPlanner from "./AfterSchoolPlanner";
 import SchoolBulletin, { SchoolImportDialog } from "./SchoolBulletin";
 import { useSchoolReader } from "./useSchoolReader";
 import CourseCoverage from "./CourseCoverage";
@@ -15,9 +16,9 @@ import CourseReader, { ReaderImportDialog } from "./CourseReader";
 import ReaderBrief from "./ReaderBrief";
 import { useCourseReader } from "./useCourseReader";
 
-type View = "overview" | "assignments" | "calendar" | "updates" | "mail" | "connections";
+type View = "overview" | "assignments" | "planner" | "calendar" | "updates" | "mail" | "connections";
 const NAV: { id: View; name: string; icon: IconName }[] = [
-  { id: "overview", name: "Overview", icon: "board" }, { id: "assignments", name: "Assignments", icon: "book" }, { id: "calendar", name: "Calendar", icon: "calendar" }, { id: "updates", name: "School updates", icon: "globe" }, { id: "mail", name: "School mail", icon: "mail" }, { id: "connections", name: "Setup & connections", icon: "link" },
+  { id: "overview", name: "Overview", icon: "board" }, { id: "assignments", name: "Assignments", icon: "book" }, { id: "planner", name: "After school", icon: "clock" }, { id: "calendar", name: "Calendar", icon: "calendar" }, { id: "updates", name: "School updates", icon: "globe" }, { id: "mail", name: "School mail", icon: "mail" }, { id: "connections", name: "Setup & connections", icon: "link" },
 ];
 const SOURCES: Record<SourceId, { name: string; icon: IconName; short: string }> = {
   district: { name: "District website", icon: "globe", short: "District" }, schoology: { name: "Schoology calendar", icon: "book", short: "Schoology" }, gmail: { name: "School email", icon: "mail", short: "Gmail" }, reader: { name: "Browser reader", icon: "book", short: "Course excerpt" },
@@ -25,6 +26,7 @@ const SOURCES: Record<SourceId, { name: string; icon: IconName; short: string }>
 const TITLES: Record<View, [string, string]> = {
   overview: ["Your study desk.", "The work in front of you. The sources behind it."],
   assignments: ["Assignments", "Instructions, dates and your checkmarks. Nothing disappears when you finish."],
+  planner: ["After school, on your terms.", "A realistic evening around your work, your commitments and your finish time."],
   calendar: ["Your calendar", "Supported dates from connected calendars and reviewed instructions."],
   updates: ["Around your school.", "School website snapshots and district announcements. Separate sources, clear coverage."],
   mail: ["The messages that matter.", "School email, without the rest of your inbox."],
@@ -217,12 +219,14 @@ export default function StudentDashboard({ initialNow, account, onChooseDistrict
         {sources.some(s => s.status === "error") && <div className="rs-error" role="status">{sources.filter(s => s.status === "error").map(s => `${SOURCES[s.id].name}: ${s.message}${s.checkedAt ? ` Showing items last checked ${dateLabel(s.checkedAt, { hour: "numeric", minute: "2-digit" })}.` : ""}`).join(" ")}<button onClick={() => navigate("connections")}>Manage connections</button></div>}
         {sources.some(s => s.warnings?.length) && <div className="rs-error" role="status">{sources.flatMap(s => s.warnings ?? []).join(" ")}</div>}
         {loading && !data && <div className="rs-loading" role="status"><span/>Checking the district website and your connected sources…</div>}
+        <div hidden={view !== "planner" || !!query.trim()}><AfterSchoolPlanner key={`${account.scope}:${account.school?.id || 'district'}`} reader={reader} active={view === "planner" && !query.trim()} onAssignments={() => navigate("assignments")}/></div>
         {query.trim() ? <div className="rd-search-results"><Panel title="Matching instructions" eyebrow="SAVED COURSE TEXT"><div className="rd-search-tasks"><ReaderTasks reader={reader} search={query}/></div></Panel><Panel title={`${searchResults.length} other source results`} eyebrow="CALENDARS, UPDATES & MAIL">{searchResults.length ? searchResults.map(i => row(i)) : <Empty icon="search" title="No other source matches" text="Course instructions are shown above. Try a shorter search for calendar entries or messages."/>}</Panel></div> : <>
           {view === "overview" && <SetupGuide reader={reader} compact onSetup={() => navigate("connections")} onAssignments={() => navigate("assignments")} onChooseSchool={onChooseDistrict}/>}
           {view === "calendar" && calendarRibbon()}
           {view === "overview" && <>
             <div className="rs-overview-grid"><div className="rs-main-column">
               <ReaderBrief reader={reader} onAssignments={() => navigate("assignments")}/>
+              <button className="ap-entry" onClick={() => navigate("planner")}><Icon name="clock"/><span><strong>Plan your afternoon</strong><small>Make room for work, fixed plans and breaks</small></span><Icon name="arrow" size={17}/></button>
               {!reader.state.pages.length && <Panel title="Your assignments" eyebrow="COURSE INSTRUCTIONS"><Empty icon="book" title="A place for the work, not more tabs." text="Your course instructions will appear here after your first read. No sources received yet—not proof of no homework."/></Panel>}
               {(eventList.length > 0 || selectedDay) && <Panel title={selectedDay ? dateLabel(selectedDay, { weekday: "long" }) : "Dates ahead"} eyebrow="CALENDAR SOURCES" action={selectedDay ? <button className="rs-text-button" onClick={() => setSelectedDay(null)}>Show upcoming</button> : allAction("calendar", "Open calendar")}>
               {eventList.length ? eventList.slice(0, 4).map(item => <button className="rs-agenda-item" key={item.id} onClick={() => setDetail(item)}><span className={`rs-date-tile ${item.title.toLowerCase().includes("no classes") ? "rs-break" : ""}`}><small>{dateLabel(item.date!, { day: undefined, month: "short" })}</small><strong>{Number(dayKey(item.date!).slice(-2))}</strong></span><span className="rs-agenda-copy"><strong>{item.title}</strong><span>{item.allDay ? (item.source === "reader" ? "Date only · check class time" : "All day") : dateLabel(item.date!, { month: undefined, day: undefined, weekday: "short", hour: "numeric", minute: "2-digit" })}{item.location ? ` · ${item.location}` : ""}</span></span><SourceTag source={item.source}/><Icon name="chevron" size={16}/></button>) : <Empty icon="calendar" title={selectedDay ? "Nothing imported for this day" : "No upcoming events loaded"} text="Only dates from connected sources appear here."/>}
