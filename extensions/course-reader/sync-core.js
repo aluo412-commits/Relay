@@ -18,6 +18,19 @@ export function schoolUrl(value, base = SCHOOL) {
     return u.href;
   } catch { return null; }
 }
+// Explicit course binding, not a classifier's guess at which file is homework.
+export function homeworkSource(value, course, base = SCHOOL) {
+  if (typeof course !== "string" || !/^\d{1,20}$/.test(course) || typeof value !== "string") return null;
+  const normalized = schoolUrl(value, base);
+  if (!normalized) return null;
+  try {
+    const original = new URL(value, base), url = new URL(normalized);
+    if ([...original.searchParams.keys()].some(k => !["f", "page"].includes(k)) || ["f", "page"].some(k => original.searchParams.getAll(k).length > 1)) return null;
+    if (original.searchParams.has("f") && !/^\d{1,20}$/.test(original.searchParams.get("f"))) return null;
+    if (!new RegExp(`^/course/${course}/materials(?:/gp/\\d+)?/?$`).test(url.pathname)) return null;
+    return normalized;
+  } catch { return null; }
+}
 export function googleUrl(value) {
   if (typeof value !== "string" || value.length > 1200) return null;
   try {
@@ -49,6 +62,9 @@ export function addJobs(run, candidates) {
 }
 export function putSnapshot(pages, page) {
   const previous = pages.find(p => p.url === page.url);
+  // A new index description is not evidence that the previously read body changed.
+  // Keep its original read timestamp; do not silently downgrade text into a wrapper.
+  if (previous && page.readDepth === "description" && (previous.readDepth !== "description" || (page.descriptionSource && !previous.descriptionSource))) return { pages, changed: false, evicted: false };
   const next = pages.filter(p => p.url !== page.url);
   next.push(page);
   // Retain current snapshots, not an unbounded history of the student's files.

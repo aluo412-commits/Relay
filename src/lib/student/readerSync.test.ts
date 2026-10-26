@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SCHOOL, PAGE_LIMIT, schoolUrl, googleUrl, isDue, addJobs, putSnapshot } from "../../../extensions/course-reader/sync-core.js";
+import { SCHOOL, PAGE_LIMIT, schoolUrl, homeworkSource, googleUrl, isDue, addJobs, putSnapshot } from "../../../extensions/course-reader/sync-core.js";
 import { autoBatch, excerptFingerprint, mergeDailySnapshot, validateSyncReport } from "./readerSync";
 import { EMPTY_READER, validateCapture, type ReaderCard } from "./reader";
 const page = (id = "1") => ({ id: `page-${id}`, url: `${SCHOOL}/assignment/${id}`, title: "Synthetic course", text: "Required practice: read chapter three and complete question one.", capturedAt: "2026-01-01T12:00:00Z", warnings: [], links: [] });
@@ -22,6 +22,20 @@ test("daily traversal only admits read paths and normalizes pagination without s
   for (const path of ["/assignment/123/submit", "/course/123/members", "/user/123", "/logout", "/external_tool/123/launch", "https://fuhsd.schoology.org/courses", "https://user:pass@fuhsd.schoology.com/courses"]) assert.equal(schoolUrl(path), null);
   assert.equal(googleUrl("https://docs.google.com/presentation/d/synthetic/edit?token=secret"), "https://docs.google.com/presentation/d/synthetic/edit");
   assert.equal(googleUrl("https://evil.example/document/d/synthetic/edit"), null);
+});
+test("fixed homework sources bind an enrolled course path, not download tokens or another course", () => {
+  assert.equal(homeworkSource(`${SCHOOL}/course/22/materials/gp/221`, "22"), `${SCHOOL}/course/22/materials/gp/221`);
+  assert.equal(homeworkSource(`${SCHOOL}/course/22/materials?f=7`, "22"), `${SCHOOL}/course/22/materials?f=7`);
+  for (const value of [`${SCHOOL}/course/11/materials/gp/221`, `${SCHOOL}/course/22/materials?token=secret`, `${SCHOOL}/assignment/221`, `${SCHOOL}/attachment/thing.pdf`, 'https://evil.example/course/22/materials']) assert.equal(homeworkSource(value, "22"), null);
+  assert.equal(homeworkSource(`${SCHOOL}/course/22/materials`, "22.*"), null);
+});
+test("directory metadata cannot downgrade a previously read body or advance its read timestamp", () => {
+  const previous = { ...page(), readDepth: "excerpt" }, description = { ...page(), text: "Source title only; contents not read.", readDepth: "description", capturedAt: "2026-01-02T12:00:00Z" };
+  const result = putSnapshot([previous], description);
+  assert.deepEqual(result.pages, [previous]); assert.equal(result.changed, false);
+  assert.equal(putSnapshot([description], previous).pages[0].text, previous.text);
+  const wrapper = { ...previous, readDepth: "description" }, index = { ...description, descriptionSource: SCHOOL + '/course/22/materials' };
+  assert.deepEqual(putSnapshot([wrapper], index).pages, [wrapper], 'Link metadata must not overwrite freshly read wrapper text either');
 });
 test("crawl queue deduplicates cyclic links and reports its hard coverage limit", () => {
   const run = { visited: [SCHOOL + "/courses"], queue: [] as { url: string }[], limited: false };

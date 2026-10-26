@@ -1,5 +1,5 @@
 import { readActivePage } from "./capture.js";
-import { installScheduler, configureSync, forgetSync, syncNow, syncStatus } from "./sync.js";
+import { installScheduler, configureSync, forgetSync, syncNow, syncStatus, setHomeworkSource } from "./sync.js";
 import { pairedAccount, pairCurrentAccount, ownedGet, ownedSet, ownedRemove } from "./owned-storage.js";
 installScheduler();
 const PRODUCTION = "https://relay.aaronluo.com";
@@ -25,6 +25,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === "sync-pause") return configureSync(false);
     if (message.type === "sync-forget") return forgetSync();
     if (message.type === "sync-now") return syncNow();
+    if (message.type === "homework-source") return setHomeworkSource(message.course, message.url);
     const manual = async () => { const data = await ownedGet("manualPages"); if (data.__binding !== account.binding) throw new Error("Account changed; result discarded."); return data.manualPages || []; };
     if (message.type === "manual-pages") return { pages: await manual() };
     if (message.type === "read") {

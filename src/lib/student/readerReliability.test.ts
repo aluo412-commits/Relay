@@ -28,9 +28,11 @@ test("hiding and completion are reversible, independent, and survive analysis re
   assert.equal(mergeAnalyzedCards(completed, [], [card.sourceId]).length, 1, "No model output must not erase acted-on cards");
 });
 test("PDF page and long-export provenance stay bounded and distinct from wrappers", () => {
-  const p: ReaderPage = { id: "p1", url: "https://fuhsd.schoology.com/course/123/materials/gp/456#pdf-abcdef01-page-1", title: "Math HW list", text: "Read section 4.3 and complete exercise three.", capturedAt: new Date().toISOString(), links: [], warnings: [], readDepth: "pdf", pdfPage: 1 };
+  const p: ReaderPage = { id: "p1", url: "https://fuhsd.schoology.com/course/123/materials/gp/456#pdf-abcdef01-page-1", title: "Math HW list", text: "Read section 4.3 and complete exercise three.", capturedAt: new Date().toISOString(), links: [], warnings: [], readDepth: "pdf", pdfPage: 1, selectedSource: true };
   assert.equal(safeReaderUrl(p.url), p.url);
   assert.ok(shouldAutoAnalyze(p));
+  assert.equal(shouldAutoAnalyze({ ...p, selectedSource: false }), false, "Old keyword-discovered PDF text is not automatically analyzed");
+  assert.equal(canAnalyzeExcerpt({ ...p, selectedSource: false }), true, "Manual analysis still requires its separate user action/consent");
   assert.equal(canAnalyzeExcerpt({ ...p, readDepth: "description" }), false);
   assert.equal(safeReaderUrl("https://docs.google.com/document/d/ABC/edit#excerpt-8"), "https://docs.google.com/document/d/ABC/edit#excerpt-8");
   assert.equal(safeReaderUrl("https://docs.google.com/document/d/ABC/edit#excerpt-999"), "https://docs.google.com/document/d/ABC/edit");

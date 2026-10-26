@@ -6,7 +6,7 @@ export const READER_LIBRARY_LIMIT = 300;
 export const READER_CARD_LIMIT = 1200;
 export const READER_MAX_TEXT = 6000;
 export const READER_AI_TEXT_LIMIT = 32000;
-export type ReaderPage = { readDepth?: "description" | "excerpt" | "pdf"; courseId?: string; pdfPage?: number; description?: string; descriptionSource?: string; services?: "turnitin"[]; id: string; url: string; title: string; text: string; capturedAt: string; warnings: string[]; links: { title: string; url: string }[] };
+export type ReaderPage = { readDepth?: "description" | "excerpt" | "pdf"; courseId?: string; pdfPage?: number; selectedSource?: boolean; description?: string; descriptionSource?: string; services?: "turnitin"[]; id: string; url: string; title: string; text: string; capturedAt: string; warnings: string[]; links: { title: string; url: string }[] };
 export type ReaderCapture = { version: 1; pages: ReaderPage[] };
 export type ReaderCard = {
   id: string; sourceId: string; sourceUrl: string; sourceTitle: string; sourceTextHash: string;
@@ -57,7 +57,7 @@ export function validateCapture(value: unknown, maxPages = READER_MAX_PAGES): Re
       const link = rawLink as Record<string, unknown>; const safe = safeReaderUrl(link.url);
       return safe ? [{ url: safe, title: short(link.title, 160) || "Open linked page" }] : [];
     }) : [];
-    return { id, url, courseId: typeof p.courseId === "string" && /^\d{1,20}$/.test(p.courseId) ? p.courseId : undefined, pdfPage: Number.isInteger(p.pdfPage) && Number(p.pdfPage) >= 1 && Number(p.pdfPage) <= 20 ? Number(p.pdfPage) : undefined, readDepth: p.readDepth === "pdf" ? "pdf" : p.readDepth === "description" || /\/materials\/gp\//.test(url) ? "description" : "excerpt", description: short(p.description, 500), descriptionSource: safeReaderUrl(p.descriptionSource) || undefined, services: Array.isArray(p.services) && p.services.includes("turnitin") ? ["turnitin"] : [], title: short(p.title, 180) || "Course page", text: p.text.trim(), capturedAt: new Date(p.capturedAt).toISOString(), warnings, links };
+    return { id, url, selectedSource: p.selectedSource === true, courseId: typeof p.courseId === "string" && /^\d{1,20}$/.test(p.courseId) ? p.courseId : undefined, pdfPage: Number.isInteger(p.pdfPage) && Number(p.pdfPage) >= 1 && Number(p.pdfPage) <= 20 ? Number(p.pdfPage) : undefined, readDepth: p.readDepth === "pdf" ? "pdf" : p.readDepth === "description" || /\/materials\/gp\//.test(url) ? "description" : "excerpt", description: short(p.description, 500), descriptionSource: safeReaderUrl(p.descriptionSource) || undefined, services: Array.isArray(p.services) && p.services.includes("turnitin") ? ["turnitin"] : [], title: short(p.title, 180) || "Course page", text: p.text.trim(), capturedAt: new Date(p.capturedAt).toISOString(), warnings, links };
   });
   return { version: 1, pages };
 }

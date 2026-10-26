@@ -1,5 +1,7 @@
 # Reader 0.6 — dates, reversible actions, and homework-list coverage
 
+Historical 0.6 behavior. [Reader 0.7](schoology-access-and-discovery.md) supersedes automatic PDF discovery with explicit source binding and bounded viewer resolution. Date and reversible-action safeguards below remain.
+
 ## Bugs addressed
 
 - Old AI cards could copy “tomorrow” into a title even when no grounded date was accepted. The brief then displayed the most recently generated cards without temporal triage. Relative title phrasing is now neutralized both on model output and local restore; capture time never anchors publication-relative wording. Posting dates are rejected as deadlines. PDF/document/update dates must overlap their task quote, not a different table row.

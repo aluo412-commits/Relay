@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Relay Course Reader — Pilot",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Automatic selective course reading: important instructions, reference descriptions, source evidence. No assignment answers or submissions.",
   "permissions": ["activeTab", "scripting", "storage", "alarms", "offscreen"],
   "host_permissions": ["https://relay.aaronluo.com/*"],

@@ -1,4 +1,6 @@
-# Guided school setup — reader 0.6
+# Guided school setup — reader 0.7
+
+PDF homework lists now use [one explicit source per course](schoology-access-and-discovery.md), selected in the extension after the first course discovery. No AI/keyword hunt for the list; official API authorization is a separate, not-yet-connected integration.
 
 See [0.6 reliability changes](reader-reliability.md): persistent setup completion, reversible hide/restore, stable checkmarks, temporal safeguards, optional PDF text, and per-course reading gaps.
 
@@ -8,7 +10,7 @@ The website now renders **one wizard step at a time**, not a five-section instru
 
 1. Sign into Relay. Choose a specific school, not only a district. Seven quick picks have curated school websites and the supported FUHSD/PAUSD Schoology portal.
 2. **Setup & connections → Automatically import daily snapshots.** This explicitly enables account-local import, not AI. The extension's initial Enable daily reading operation now checks that a paired, open Relay tab is ready to receive results. A direct runtime request cannot bypass this check.
-3. Download/unzip reader 0.6; open `chrome://extensions`; Developer mode → Load unpacked → extracted `relay-course-reader` folder. Existing users replace the original files and Reload, rather than installing a duplicate. Reload Relay after installing/updating. Open the puzzle-piece menu, pin the reader, and pair the displayed Relay account.
+3. Download/unzip reader 0.7; open `chrome://extensions`; Developer mode → Load unpacked → extracted `relay-course-reader` folder. Existing users replace the original files and Reload, rather than installing a duplicate. Reload Relay after installing/updating. Open the puzzle-piece menu, pin the reader, and pair the displayed Relay account.
 4. Open the exact course portal linked in Relay and the extension. Complete school SSO/MFA there. Enable read-only collection and use Sync now. Linked Google documents retain separate optional host access. Once enabled, collection can still run while Chrome runs and the website is closed; delivery waits for the website.
 5. Separately enable **Automatically analyze new or changed excerpts** if permitted by the course's AI rules. The provider/model, recurring upload scope, limits and retention caveat are visible. Keep Relay visible/online. No routine document selection is needed. Unchecked means no automatic AI assignments, not a broken sync.
 6. See unreviewed assignment/event drafts directly in **Assignments** and the Overview brief. Drafts remain separate from the accepted board and do not imply submission or verified deadlines. Policy and feedback cards remain information rather than homework tasks.

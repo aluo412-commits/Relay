@@ -1,8 +1,8 @@
-# Relay Course Reader — 0.6 homework coverage / reliability pilot
+# Relay Course Reader — 0.7 explicit-source / viewer resolution pilot
 
-Current changes and limits: https://github.com/aluo412-commits/Relay/blob/main/docs/reader-reliability.md
+Current changes, research and authorization limits: https://github.com/aluo412-commits/Relay/blob/main/docs/schoology-access-and-discovery.md
 
-For PDF homework lists: update this extension, Reload, then Pause daily reading, enable **Read important linked PDF homework lists/calendars**, and enable reading again. Use Sync now. This is optional local text parsing, not OCR; AI still requires its separate website permission.
+For a PDF homework list: run a course check, Pause, then open **Choose a fixed homework source for a course**. Select the discovered course and its ordinary Schoology resource-page URL. Enable selected-source PDF reading, resume and Sync now. No automatic HW-list guessing; multiple files are reported as ambiguous. Viewer metadata is parsed as JSON, never executed. This is optional local text parsing, not OCR; AI still requires separate website permission. Pins are part of the encrypted extension cache and are cleared by pairing/cache deletion.
 
 ## Install or update
 
@@ -33,7 +33,7 @@ The extension discovers enrolled courses and follows allow-listed material folde
 Local title/description signals prioritize instructions, syllabi, calendars, rubrics, labs and feedback. The LLM organizes readable important excerpts into an automatic dashboard brief. Ordinary/ambiguous linked resources remain descriptions from their linking pages, without fetching document bodies just to classify them. Priority routing is a heuristic and can miss important material; uncertainty stays visible. Old/manual captures can remain locally but are filtered before automatic AI.
 
 - Up to 40 courses / 240 URLs per sweep, fair shares per course; 300 retained excerpts, 6,000 characters each. Long text can be split into up to eight excerpts. Limits are reported.
-- Optional PDF text: selected-school / approved Schoology CDN links only, up to two files/source page, 2 MB/file and first 20 pages. Parsed locally with bundled PDF.js; no scripts, forms, OCR or password bypass. Scans, inaccessible links, images and external tools remain unread. A wrapper is still not its file's contents.
+- Optional PDF text: selected-school / approved Schoology CDN links only, one resolved PDF per explicitly selected source page, 2 MB/file and first 20 pages. Up to two same-origin Schoology viewer metadata pages can be resolved first; redirects/foreign viewers are not followed. Parsed locally with bundled PDF.js; no scripts, forms, OCR or password bypass. Scans, inaccessible links, images and external tools remain unread. A wrapper is still not its file's contents.
 - No login/MFA/export-policy bypass. Real school layouts still need validation on the permitted student's account.
 - Requirements, planning and source-grounded learning notes only: no coursework answers, solutions or generated submission text. AI drafts are not verified tasks and never submit work.
 - Only explicit personal status labels in individual assignment snapshots become observations. Turnitin and Schoology are separate; a Turnitin link alone means unknown. A direct live Turnitin connector is not implemented.

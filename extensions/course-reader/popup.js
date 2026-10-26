@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 let pages = [];
 let busy = false;
 function status(text, error = false) { $("status").textContent = text; $("status").className = error ? "error" : ""; }
-function syncButtons() { $("read").disabled = busy || !paired; $("send").disabled = busy || !document.querySelector(".page input:checked"); $("clear").disabled = busy || !pages.length; }
+function syncButtons() { $("read").disabled = busy || !paired; $("send").disabled = busy || !document.querySelector(".page input:checked"); $("clear").disabled = busy || !pages.length; if ($('save-source')) $('save-source').disabled = busy || !paired || enabled || !$('source-course').value || !$('source-url').value.trim(); if (busy) { $('sync-now').disabled = true; $('enable-sync').disabled = true; } }
 async function action(message) {
   busy = true; syncButtons();
   try { const result = await chrome.runtime.sendMessage({ ...message, binding: account?.binding }); if (!result?.ok) throw new Error(result?.error || "The extension did not respond."); if (result.pages) { const check = await chrome.runtime.sendMessage({ type: "sync-status" }); if (!check.paired || check.account?.binding !== account?.binding) { renderSync(check); throw new Error("Account changed; old data discarded."); } pages = result.pages; render(); } return result; }
@@ -42,13 +42,36 @@ $("pair-account").addEventListener("click", async () => {
   renderSync(await action({ type: "sync-pair" }));
 });
 let enabled = false, websiteIsReady = false;
+function renderHomeworkSources(result) {
+  const choice = $('source-course').value;
+  $('source-course').replaceChildren();
+  const first = node('option', result?.report?.courses?.length ? 'Choose your course' : 'Run a course check first'); first.value = ''; $('source-course').append(first);
+  for (const c of result?.report?.courses || []) { const option = node('option', c.title); option.value = c.id; $('source-course').append(option); }
+  $('source-course').value = choice;
+  $('source-course').disabled = !paired || enabled;
+  $('source-url').disabled = !paired || enabled;
+  $('save-source').disabled = !paired || enabled || !$('source-course').value || !$('source-url').value.trim();
+  $('saved-sources').replaceChildren();
+  for (const p of result?.homeworkSources || []) {
+    const row = node('div'); row.append(node('p', `${p.title}: ${p.url}`));
+    const remove = node('button', 'Remove selected source'); remove.disabled = !paired || enabled;
+    remove.addEventListener('click', async () => { const saved = await action({ type: 'homework-source', course: p.course, url: null }); if (saved) { renderSync(saved); status('Selected source removed. Earlier snapshots and AI permission are unchanged.'); } });
+    row.append(remove); $('saved-sources').append(row);
+  }
+}
+$('source-course').addEventListener('change', () => { $('save-source').disabled = !paired || enabled || !$('source-course').value || !$('source-url').value.trim(); });
+$('source-url').addEventListener('input', () => { $('save-source').disabled = !paired || enabled || !$('source-course').value || !$('source-url').value.trim(); });
+$('save-source').addEventListener('click', async () => {
+  const saved = await action({ type: 'homework-source', course: $('source-course').value, url: $('source-url').value.trim() });
+  if (saved) { $('source-url').value = ''; renderSync(saved); status('Source saved for this course. Enable PDF reading and resume the next sweep. No AI permission changed.'); }
+});
 function renderSync(result) {
-  if (!result?.ok) { account = null; paired = false; enabled = false; websiteIsReady = false; $("pause-sync").disabled = true; $("sync-now").disabled = true; $("school-portal").hidden = true; pages = []; render(); $("sync-report").replaceChildren(); $("account-label").textContent = "Account unavailable. Open Relay and sign in."; $("sync-summary").textContent = "No verified account."; $("enable-sync").disabled = true; $("pair-account").disabled = true; return; }
+  if (!result?.ok) { account = null; paired = false; enabled = false; websiteIsReady = false; renderHomeworkSources(null); $("pause-sync").disabled = true; $("sync-now").disabled = true; $("school-portal").hidden = true; pages = []; render(); $("sync-report").replaceChildren(); $("account-label").textContent = "Account unavailable. Open Relay and sign in."; $("sync-summary").textContent = "No verified account."; $("enable-sync").disabled = true; $("pair-account").disabled = true; return; }
   const changed = account?.binding !== result.account?.binding;
   account = result.account; paired = result.paired === true;
   $("account-label").textContent = account ? `${account.email} · ${districtById(account.districtId)?.short} · ${paired ? "Paired" : "Pairing needed"}` : (result.message || "Open Relay and choose your school first.");
   $("pair-account").disabled = !account;
-  if (!paired || changed) { pages = []; render(); }
+  if (!paired || changed) { pages = []; $('source-url').value = ''; render(); }
   enabled = result.settings.enabled;
   websiteIsReady = result.websiteReady === true;
   $("website-ready").textContent = websiteIsReady ? "Website ready to receive your course checks. AI permission remains a separate choice in Relay." : enabled ? "Website not open/ready. Reading can continue locally; open Relay and enable imports to receive results. AI only runs on the visible dashboard." : "Before enabling reading: open guided setup in Relay and turn on Automatically import daily snapshots in this account.";
@@ -63,6 +86,7 @@ function renderSync(result) {
   $("pdf-consent").disabled = enabled;
   $("daily-consent").disabled = enabled;
   if (enabled) { $("daily-consent").checked = true; $("google-consent").checked = result.settings.google; $("pdf-consent").checked = result.settings.pdf === true; }
+  renderHomeworkSources(paired ? result : null);
   const r = result.report;
   $("sync-summary").textContent = r ? `${r.status} · ${r.courses.length} courses · ${r.read} text snapshots · ${r.changed} new/changed · ${r.queued} queued. ${r.message}` : result.message || "No daily sweep yet.";
   $("sync-report").replaceChildren();

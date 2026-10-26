@@ -8,7 +8,7 @@ export function pagePriority(page: ReaderPage) {
 }
 export function canAnalyzeExcerpt(page: ReaderPage): boolean { return page.readDepth !== "description" && (page.readDepth === "pdf" || !/\/materials\/gp\//.test(page.url)) && !isAnswerMaterial(page.title, page.description); }
 export function shouldAutoAnalyze(page: ReaderPage): boolean {
-  return canAnalyzeExcerpt(page) && !sourceClosed(page.title) && pagePriority(page).level === "important";
+  return (page.readDepth !== "pdf" || page.selectedSource === true) && canAnalyzeExcerpt(page) && !sourceClosed(page.title) && pagePriority(page).level === "important";
 }
 export type SubmissionObservation = { provider: "Schoology" | "Turnitin"; status: "submitted" | "not_submitted" | "submitted_ungraded" | "unknown"; quotes: string[]; reason: string };
 // These are source-text observations, not verified platform API states. Never

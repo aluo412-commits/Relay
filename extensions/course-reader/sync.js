@@ -1,6 +1,6 @@
 import { parseLocalPdf } from "./pdf-reader.js";
 import { ownedGet, ownedSet, ownedRemove, pairedAccount, currentAccount } from "./owned-storage.js";
-import { schoolUrl, googleUrl, isDue, addJobs, putSnapshot } from "./sync-core.js";
+import { schoolUrl, homeworkSource, googleUrl, isDue, addJobs, putSnapshot } from "./sync-core.js";
 import { readSyncPage } from "./sync-read.js";
 import { readingPriority } from "./priority.js";
 async function describeSource(url, link, parent, courseId) {
@@ -11,7 +11,22 @@ const ALARM = "relay-daily-reader";
 const DEFAULT = { enabled: false, google: false, pdf: false };
 let working = false;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function state() { const s = await ownedGet(["syncSettings", "syncRun", "syncPages"]); return { settings: s.syncSettings || DEFAULT, run: s.syncRun || null, pages: s.syncPages || [], binding: s.__binding };  }
+async function state() { const s = await ownedGet(["syncSettings", "syncRun", "syncPages", "homeworkSources"]); return { settings: s.syncSettings || DEFAULT, run: s.syncRun || null, pages: s.syncPages || [], pins: Array.isArray(s.homeworkSources) ? s.homeworkSources.slice(0,40) : [], binding: s.__binding }; }
+export async function setHomeworkSource(course, value) {
+  const account = await pairedAccount(), s = await state();
+  if (s.binding !== account.binding) throw new Error("Account changed; operation canceled.");
+  if (s.settings.enabled) throw new Error("Pause reading before changing a homework source.");
+  const enrolled = s.run?.courses.find(c => c.id === course);
+  const oldPin = s.pins.find(p => p.course === course);
+  if (!enrolled && !(value === null && oldPin)) throw new Error("Run a course check first, then choose one of your discovered courses.");
+  const url = value === null ? null : homeworkSource(value, course, account.district.schoology);
+  if (value !== null && !url) throw new Error("Use this course's Schoology materials or individual file/page wrapper URL. Do not paste a signed download URL or login link.");
+  const pins = s.pins.filter(p => p.course !== course);
+  if (url) pins.push({ course, url, title: enrolled.title });
+  // A paused queue was planned with the old source choice. Start fresh next time.
+  await ownedSet({ homeworkSources: pins, syncRun: s.run ? { ...s.run, status: "partial", queue: [], message: "Source choice changed. Enable reading and Sync now to check it." } : null }, account.binding);
+  return syncStatus();
+}
 function publicReport(run) {
   if (!run) return null;
   const { id, status, startedAt, finishedAt, courses, read, changed, unread, unreadCount, limited, message } = run;
@@ -33,7 +48,7 @@ export async function syncStatus() {
   let account;
   try { const a = await currentAccount(); account = { email: a.user.email, districtId: a.district.id, schoology: a.district.schoology, binding: a.binding, scope: a.scope }; }
   catch (e) { return { settings: DEFAULT, report: null, paired: false, account: null, message: e.message }; }
-  try { const s = await state(); if (s.binding !== account.binding) throw new Error("Account changed; reopen the extension."); return { settings: s.settings, report: publicReport(s.run), paired: true, account, websiteReady: await websiteReady(account) }; }
+  try { const s = await state(); if (s.binding !== account.binding) throw new Error("Account changed; reopen the extension."); return { settings: s.settings, report: publicReport(s.run), homeworkSources: s.pins, paired: true, account, websiteReady: await websiteReady(account) }; }
   catch (e) { return { settings: DEFAULT, report: null, paired: false, account, message: e.message }; }
 }
 async function closeOwned(run) {
@@ -64,16 +79,22 @@ export async function configureSync(enabled, google = false, pdf = false) {
 }
 export async function forgetSync() {
   await configureSync(false);
-  await ownedRemove(["syncPages", "syncRun", "schoolIdentity"], (await pairedAccount()).binding);
+  await ownedRemove(["syncPages", "syncRun", "schoolIdentity", "homeworkSources"], (await pairedAccount()).binding);
   await chrome.action.setBadgeText({ text: "" });
   return syncStatus();
 }
 export async function syncNow() {
-  const s = await state();
+  let s = await state(); const binding = s.binding;
   if (!s.settings.enabled) throw new Error("Enable daily course reading first.");
   if (s.run?.status === "running") return syncStatus();
-  if (working) throw new Error("The previous sweep is finishing. Try Sync now again in a few seconds.");
-  await ownedRemove("syncRun", s.run?.accountBinding || (await pairedAccount()).binding);
+  // Enable can still be delivering the previous snapshot. Wait for that short
+  // handoff instead of losing the student's immediate Sync now request.
+  for (let i = 0; working && i < 50; i++) await pause(200);
+  if (working) throw new Error("The previous sweep is still finishing. Try Sync now again shortly.");
+  s = await state();
+  if (s.binding !== binding || !s.settings.enabled) throw new Error("Account or reading permission changed; sync canceled.");
+  if (s.run?.status === "running") return syncStatus();
+  await ownedRemove("syncRun", binding);
   void tick().catch(() => {}); return syncStatus();
 }
 async function ensureAlarm() { if (!await chrome.alarms.get(ALARM)) await chrome.alarms.create(ALARM, { periodInMinutes: 1 }); }
@@ -173,7 +194,7 @@ export async function tick() {
       const job = run.queue[0]; let result;
       try {
         const tab = await ownedTab(run, job.url.startsWith("https://docs.google.com/"));
-        const output = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readSyncPage, args: [job.url, SCHOOL, s.settings.pdf === true, job.title, (await ownedGet('schoolIdentity')).schoolIdentity || null] });
+        const output = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readSyncPage, args: [job.url, SCHOOL, s.settings.pdf === true && job.pinned === true, job.title, (await ownedGet('schoolIdentity')).schoolIdentity || null] });
         result = output[0]?.result || { error: "Source did not return readable content." };
       } catch (e) { result = { error: e.message, login: e.message === "LOGIN_REQUIRED" }; }
       const after = await state();
@@ -200,7 +221,8 @@ export async function tick() {
           if (!run.courses.length) { issue(run, job, "No enrolled courses were discovered. The page may require a different layout or a new login; no full-coverage claim is made."); run.message = "Course discovery needs attention. Open Schoology and check your courses."; }
           else {
             s.pages = s.pages.filter(p => !p.courseId || run.courses.some(c => c.id === p.courseId));
-            addJobs(run, [...run.courses.flatMap(c => [{ url: `${SCHOOL}/course/${c.id}/materials`, title: c.title, course: c.id }, { url: `${SCHOOL}/course/${c.id}/updates`, title: c.title + " · updates", course: c.id }]), { url: SCHOOL + "/grades/grades", title: "My grades", course: null }]);
+            const pins = s.pins.filter(p => run.courses.some(c => c.id === p.course) && homeworkSource(p.url, p.course, SCHOOL) === p.url).map(p => ({ url: p.url, title: `${p.title} · Selected homework source`, course: p.course, pinned: true }));
+            addJobs(run, [...pins, ...run.courses.flatMap(c => [{ url: `${SCHOOL}/course/${c.id}/materials`, title: c.title, course: c.id }, { url: `${SCHOOL}/course/${c.id}/updates`, title: c.title + " · updates", course: c.id }]), { url: SCHOOL + "/grades/grades", title: "My grades", course: null }]);
           }
         }
         const additional = result.extraPages || [];
@@ -214,7 +236,7 @@ export async function tick() {
             for (const p of parsed.pages) {
               const pageUrl = job.url + '#pdf-' + tag + '-page-' + p.page;
               const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pageUrl));
-              additional.push({ id: 'page-' + [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,24), url: pageUrl, title: `${job.title} · ${file.title} · PDF page ${p.page}`.slice(0,180), text: p.text, readDepth: 'pdf', pdfPage: p.page, capturedAt: new Date().toISOString(), warnings: ['PDF text extracted locally. Table rows preserve visual cell order, but layout/date relationships still need review. No images, OCR or document scripts.', ...(p.truncated ? ['Page truncated at 6,000 characters.'] : [])], links: [] });
+              additional.push({ id: 'page-' + [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,24), url: pageUrl, title: `${job.title} · ${file.title} · PDF page ${p.page}`.slice(0,180), text: p.text, readDepth: 'pdf', pdfPage: p.page, selectedSource: job.pinned === true, capturedAt: new Date().toISOString(), warnings: ['PDF text extracted locally. Table rows preserve visual cell order, but layout/date relationships still need review. No images, OCR or document scripts.', ...(p.truncated ? ['Page truncated at 6,000 characters.'] : [])], links: [] });
             }
           } catch (e) { issue(run, { ...job, title: file.title }, e.message, 'attachment'); }
         }
@@ -223,13 +245,15 @@ export async function tick() {
         if (!parsedState.settings.enabled || parsedState.binding !== account.binding || parsedState.run?.id !== run.id || parsedState.run.status !== 'running') return;
         for (const page of additional) {
           page.courseId = job.course;
+          page.selectedSource = job.pinned === true;
           page.title = `${run.courses.find(c => c.id === job.course)?.title || 'Course'} · ${page.title}`.slice(0,180);
           const merged = putSnapshot(s.pages, page); s.pages = merged.pages; run.read++; if (merged.changed) run.changed++; if (merged.evicted) run.limited = true;
         }
         if (result.page) {
           result.page.description = job.description || "";
-          if (job.course) result.page.title = `${run.courses.find(c => c.id === job.course)?.title || "Course"} · ${job.url.startsWith("https://docs.google.com/") ? job.title : result.page.title}`.slice(0, 180);
+          if (job.course) result.page.title = `${run.courses.find(c => c.id === job.course)?.title || "Course"} · ${job.pinned ? `${job.title} · ${result.page.title}` : job.url.startsWith("https://docs.google.com/") ? job.title : result.page.title}`.slice(0, 180);
           result.page.courseId = job.course;
+          result.page.selectedSource = job.pinned === true;
           const merged = putSnapshot(s.pages, result.page); s.pages = merged.pages;
           run.read++; if (merged.changed) run.changed++; if (merged.evicted) run.limited = true;
         }

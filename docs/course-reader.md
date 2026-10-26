@@ -1,4 +1,6 @@
-# Browser course reader — 0.6 reliability pilot
+# Browser course reader — 0.7 selected-source pilot
+
+[Current source discovery and OAuth research](schoology-access-and-discovery.md): PDF reading now uses an explicitly selected per-course source, not keyword-based HW-list discovery. Wrapper → same-origin viewer → PDF resolution is supported within strict bounds. No official Schoology OAuth connection has been established.
 
 Current behavior and boundaries: [dates, reversible actions, PDF text and homework-list coverage](reader-reliability.md). This adds optional bounded local PDF parsing and segmented text; it does not claim every file/layout is supported.
 
