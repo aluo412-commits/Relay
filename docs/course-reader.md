@@ -1,4 +1,6 @@
-# Browser course reader — 0.7 selected-source pilot
+# Browser course reader — 0.8 pilot
+
+[New optional Lynbrook website reader](lynbrook-website-reader.md): manually capture rendered public pages into a separate School updates library. No AI, personal assignments, new host grants or automatic campus crawl. The course workflow below is unchanged.
 
 [Current source discovery and OAuth research](schoology-access-and-discovery.md): PDF reading now uses an explicitly selected per-course source, not keyword-based HW-list discovery. Wrapper → same-origin viewer → PDF resolution is supported within strict bounds. No official Schoology OAuth connection has been established.
 

@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 let pages = [];
 let busy = false;
 function status(text, error = false) { $("status").textContent = text; $("status").className = error ? "error" : ""; }
-function syncButtons() { $("read").disabled = busy || !paired; $("send").disabled = busy || !document.querySelector(".page input:checked"); $("clear").disabled = busy || !pages.length; if ($('save-source')) $('save-source').disabled = busy || !paired || enabled || !$('source-course').value || !$('source-url').value.trim(); if (busy) { $('sync-now').disabled = true; $('enable-sync').disabled = true; } }
+function syncButtons() { $("read-school").disabled = busy || !paired || account?.districtId !== 'fuhsd'; $("read").disabled = busy || !paired; $("send").disabled = busy || !document.querySelector(".page input:checked"); $("clear").disabled = busy || !pages.length; if ($('save-source')) $('save-source').disabled = busy || !paired || enabled || !$('source-course').value || !$('source-url').value.trim(); if (busy) { $('sync-now').disabled = true; $('enable-sync').disabled = true; } }
 async function action(message) {
   busy = true; syncButtons();
   try { const result = await chrome.runtime.sendMessage({ ...message, binding: account?.binding }); if (!result?.ok) throw new Error(result?.error || "The extension did not respond."); if (result.pages) { const check = await chrome.runtime.sendMessage({ type: "sync-status" }); if (!check.paired || check.account?.binding !== account?.binding) { renderSync(check); throw new Error("Account changed; old data discarded."); } pages = result.pages; render(); } return result; }
@@ -31,6 +31,7 @@ function render() {
   syncButtons();
 }
 $("read").addEventListener("click", async () => { status("Reading this page on your device…"); const result = await action({ type: "read" }); if (result) status("Captured locally. Review the text and choose what to send."); });
+$("read-school").addEventListener("click", async () => { status("Reading rendered Lynbrook text locally…"); if (await action({ type: "read-school" })) { document.querySelector('.manual').open = true; status("School snapshot captured locally. Review only the Lynbrook pages, then confirm in Relay. No AI or assignments created."); } });
 $("clear").addEventListener("click", async () => { if (await action({ type: "clear" })) status("Captured pages cleared from the extension."); });
 $("send").addEventListener("click", async () => {
   const ids = [...document.querySelectorAll(".page input:checked")].map(i => i.value);

@@ -1,0 +1,9 @@
+.rs-campus{margin-bottom:24px}
+.rs-side-column>.rs-campus{margin-bottom:0}
+.rs-campus>.sg-help,.rs-campus>.rr-pages,.rs-campus>.rs-form-error{margin:0 24px 20px}
+.rs-campus .rr-pages{grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))}
+.rs-campus .rr-page-heading h3{font-size:15px;line-height:1.55;margin:0;overflow-wrap:anywhere;min-width:0}
+.rs-campus summary{min-height:44px;padding:12px 0}
+.rs-campus-compact .rs-panel-heading{flex-direction:column;align-items:flex-start}
+.rs-school-import .rr-import-list>article>a{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+@media(max-width:900px){.rs-campus>.sg-help,.rs-campus>.rr-pages,.rs-campus>.rs-form-error{margin-inline:16px}}

@@ -1,4 +1,8 @@
-# Relay Course Reader — 0.7 explicit-source / viewer resolution pilot
+# Relay Course Reader — 0.8 course & Lynbrook website pilot
+
+New: **Read Lynbrook page** captures rendered public text from the active `https://lhs.fuhsd.org` tab, including a news dialog you explicitly opened with Read More. Pair with FUHSD and choose Lynbrook in Relay. Preview and confirm the school import; it stays separate from course excerpts, AI and personal assignments. Daily reading and AI can remain off. No new host permission, server scraping, Cloudflare bypass or automatic campus crawl. Update the unpacked folder and Reload, then refresh Relay.
+
+[Campus reading limits and live public-page verification](https://github.com/aluo412-commits/Relay/blob/main/docs/lynbrook-website-reader.md). Schoology/PDF behavior below remains unchanged.
 
 Current changes, research and authorization limits: https://github.com/aluo412-commits/Relay/blob/main/docs/schoology-access-and-discovery.md
 

@@ -1,4 +1,5 @@
 import { readActivePage } from "./capture.js";
+import { readSchoolPage } from "./school-capture.js";
 import { installScheduler, configureSync, forgetSync, syncNow, syncStatus, setHomeworkSource } from "./sync.js";
 import { pairedAccount, pairCurrentAccount, ownedGet, ownedSet, ownedRemove } from "./owned-storage.js";
 installScheduler();
@@ -28,11 +29,13 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === "homework-source") return setHomeworkSource(message.course, message.url);
     const manual = async () => { const data = await ownedGet("manualPages"); if (data.__binding !== account.binding) throw new Error("Account changed; result discarded."); return data.manualPages || []; };
     if (message.type === "manual-pages") return { pages: await manual() };
-    if (message.type === "read") {
+    if (message.type === "read" || message.type === "read-school") {
+      const school = message.type === "read-school";
+      if (school && account.district.id !== "fuhsd") throw new Error("Lynbrook public reading is available only in the FUHSD workspace.");
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const origin = (() => { try { return new URL(tab?.url).origin; } catch { return ""; } })();
-      if (!tab?.id || ![account.district.schoology, "https://docs.google.com"].includes(origin)) throw new Error("Open Schoology in your selected district, or your course Google Doc/Slides.");
-      const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readActivePage, args: [account.district.schoology] });
+      if (!tab?.id || !(school ? ["https://lhs.fuhsd.org"] : [account.district.schoology, "https://docs.google.com"]).includes(origin)) throw new Error(school ? "Open the public Lynbrook page in this tab, then click Read Lynbrook page." : "Open Schoology in your selected district, or your course Google Doc/Slides.");
+      const results = school ? await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readSchoolPage }) : await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readActivePage, args: [account.district.schoology] });
       const page = results[0]?.result;
       if (page?.error) throw new Error(page.error);
       if (!page?.text) throw new Error("The page could not be read.");
@@ -48,22 +51,24 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message.type === "send") {
       const pages = (await manual()).filter(p => Array.isArray(message.ids) && message.ids.includes(p.id));
       if (!pages.length) throw new Error("Choose a captured page first.");
+      const school = pages.some(p => p.url.startsWith("https://lhs.fuhsd.org/"));
+      if (school && (account.district.id !== "fuhsd" || pages.some(p => !p.url.startsWith("https://lhs.fuhsd.org/")))) throw new Error("Review school website pages separately from course pages. Select only Lynbrook pages for this import.");
       const tabs = await chrome.tabs.query({ url: PRODUCTION + "/*" });
       const existing = tabs.find(t => { try { return new URL(t.url).pathname === "/"; } catch { return false; } });
       const tab = existing ? await chrome.tabs.update(existing.id, { active: true }) : await chrome.tabs.create({ url: PRODUCTION + "/?reader=import" });
       if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
-      const id = crypto.randomUUID(), payload = { version: 1, pages };
+      const id = crypto.randomUUID(), payload = { version: 1, ...(school ? { kind: "school" } : {}), pages };
       for (let i = 0; i < 25; i++) {
         let ready = false;
-        try { const result = await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [account.binding], func: binding => document.documentElement.dataset.relayReaderReady === "1" && JSON.parse(document.documentElement.dataset.relayReaderAccount || "null")?.binding === binding }); ready = result[0]?.result === true; } catch { /* Navigating. */ }
+        try { const result = await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [account.binding, school], func: (binding, school) => document.documentElement.dataset[school ? 'relaySchoolReaderReady' : 'relayReaderReady'] === "1" && JSON.parse(document.documentElement.dataset.relayReaderAccount || "null")?.binding === binding }); ready = result[0]?.result === true; } catch { /* Navigating. */ }
         if (ready) {
           if ((await pairedAccount()).binding !== account.binding) throw new Error("Account changed; import canceled.");
-          const sent = await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [payload, id, account.scope, account.binding], func: (payload, id, scope, binding) => {
+          const sent = await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [payload, id, account.scope, account.binding, school], func: (payload, id, scope, binding, school) => {
             if (location.origin !== "https://relay.aaronluo.com" || JSON.parse(document.documentElement.dataset.relayReaderAccount || "null")?.binding !== binding) return false;
             return new Promise(resolve => {
               const timer = setTimeout(() => { window.removeEventListener("message", ack); resolve(false); }, 8000);
-              function ack(e) { if (e.source === window && e.origin === location.origin && e.data?.type === "relay.reader.received" && e.data.id === id) { clearTimeout(timer); window.removeEventListener("message", ack); resolve(true); } }
-              window.addEventListener("message", ack); window.postMessage({ type: "relay.reader.capture", id, payload, scope, binding }, location.origin);
+              function ack(e) { if (e.source === window && e.origin === location.origin && e.data?.type === (school ? "relay.school.received" : "relay.reader.received") && e.data.id === id) { clearTimeout(timer); window.removeEventListener("message", ack); resolve(true); } }
+              window.addEventListener("message", ack); window.postMessage({ type: school ? "relay.school.capture" : "relay.reader.capture", id, payload, scope, binding }, location.origin);
             });
           } });
           if (!sent[0]?.result) throw new Error("Import not acknowledged. Check the account and any open preview.");
@@ -71,7 +76,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         }
         await new Promise(r => setTimeout(r, 400));
       }
-      throw new Error("Open Relay in the paired account and district, then send again.");
+      throw new Error(school ? "Open Relay with Lynbrook selected in the paired FUHSD account, then send again. Update/refresh Relay if needed." : "Open Relay in the paired account and district, then send again.");
     }
     throw new Error("Unknown action.");
   })().then(result => respond({ ok: true, ...result })).catch(error => respond({ ok: false, error: error.message || "Reader failed." }));
